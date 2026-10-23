@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KernelCraft</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="/vendor/libv86.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">▣</span> KernelCraft <span class="tagline">AI OS foundry</span></div>
+    <div class="provider" id="provider">connecting…</div>
+  </header>
+
+  <main class="ide">
+    <!-- Left: prompt, tier, agent log -->
+    <section class="panel left">
+      <h2>Describe your OS</h2>
+      <textarea id="prompt" rows="6" placeholder="Make a 32-bit retro OS with a file explorer and neon blue theme">Make a 32-bit retro OS called NeonOS with a taskbar, a terminal window and a neon blue theme</textarea>
+
+      <h2>Target tier</h2>
+      <div class="tiers" id="tiers">
+        <label class="tier"><input type="radio" name="tier" value="real16"><span><b>16-bit Real Mode</b><small>Free · bootloaders, text shells</small></span></label>
+        <label class="tier"><input type="radio" name="tier" value="prot32" checked><span><b>32-bit Protected Mode</b><small>Pro $20/mo · VGA GUIs, C kernels</small></span></label>
+        <label class="tier"><input type="radio" name="tier" value="long64"><span><b>64-bit Long Mode</b><small>Enterprise $99+/mo · QEMU-verified</small></span></label>
+      </div>
+
+      <div class="actions">
+        <button id="build" class="primary">Build OS</button>
+        <button id="sample" title="Boot the stock template for this tier, no AI">Boot sample</button>
+      </div>
+
+      <h2>Agent thought log <button id="clear-log" class="link">clear</button></h2>
+      <div class="log" id="log"></div>
+    </section>
+
+    <!-- Center: emulator -->
+    <section class="panel center">
+      <div class="tabs">
+        <button class="tab active" data-tab="display">Display</button>
+        <button class="tab" data-tab="source">Source</button>
+        <div class="spacer"></div>
+        <button id="restart" title="Reboot the emulator">⟲ Reboot</button>
+        <button id="export" class="primary" disabled>Export .IMG</button>
+      </div>
+
+      <div class="tab-body" id="tab-display">
+        <div class="screen-frame">
+          <div id="screen_container">
+            <div class="text-layer"></div>
+            <canvas></canvas>
+          </div>
+          <img id="preview" alt="" hidden>
+          <div class="overlay" id="overlay">
+            <p>No OS loaded.</p>
+            <p class="muted">Describe an OS and press <b>Build OS</b>, or boot a sample.</p>
+          </div>
+        </div>
+        <div class="metrics">
+          <div><span>CPU</span><b id="m-cpu">idle</b></div>
+          <div><span>MIPS</span><b id="m-mips">–</b></div>
+          <div><span>FPS</span><b id="m-fps">–</b></div>
+          <div><span>Video</span><b id="m-video">–</b></div>
+          <div><span>Memory</span><b id="m-mem">–</b></div>
+          <div><span>Image</span><b id="m-image">–</b></div>
+        </div>
+        <p class="hint">Click the screen, then type to send keys to the guest.</p>
+      </div>
+
+      <div class="tab-body" id="tab-source" hidden>
+        <div class="file-tabs" id="file-tabs"></div>
+        <pre class="source" id="source">Build an OS to see its generated source.</pre>
+      </div>
+    </section>
+
+    <!-- Bottom: pass gallery -->
+    <section class="panel bottom">
+      <h2>Verification passes <span class="muted" id="pass-summary"></span></h2>
+      <div class="gallery" id="gallery"><p class="muted">Screenshots from each headless QEMU boot appear here.</p></div>
+    </section>
+  </main>
+
+  <dialog id="lightbox">
+    <form method="dialog"><button class="close">×</button></form>
+    <img id="lightbox-img" alt="">
+    <div id="lightbox-text"></div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
