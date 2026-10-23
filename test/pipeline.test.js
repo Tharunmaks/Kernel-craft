@@ -1,25 +1,32 @@
-// Run with: npm test   (needs nasm, gcc with -m32 support, ld, qemu-system-i386/x86_64)
+// Run with: npm test   (needs nasm, gcc with -m32 support, ld, qemu-system-i386/x86_64;
+// the Linux Forge test also needs "npm run setup:linux")
 const test = require("node:test");
 const assert = require("node:assert");
+const fs = require("fs");
+const path = require("path");
 const http = require("http");
 const Anthropic = require("@anthropic-ai/sdk");
-const { TIERS, getTier } = require("../lib/tiers");
+const { TARGETS, getTier } = require("../lib/tiers");
 const { buildOS } = require("../lib/pipeline");
 const { readTemplate, validateSources } = require("../lib/toolchain");
-const { parseFiles, parseVerdict } = require("../lib/prompts");
+const prompts = require("../lib/prompts");
 const { createOfflineProvider } = require("../lib/providers/offline");
 const { createAnthropicProvider } = require("../lib/providers/anthropic");
 
-for (const tier of Object.values(TIERS)) {
-  test(`${tier.id} template builds, boots and draws something`, async () => {
+const linuxReady = fs.existsSync(path.join(TARGETS.linux64.linuxBase, "vmlinuz"));
+
+for (const tier of Object.values(TARGETS)) {
+  const skip = tier.builder === "linux" && !linuxReady && "Linux base not installed (npm run setup:linux)";
+  test(`${tier.id}: offline build boots and draws something`, { skip, timeout: 120000 }, async () => {
     const result = await buildOS({ prompt: "an OS called TestOS", tier, provider: createOfflineProvider(), maxPasses: 1 });
     assert.ok(result.verified, JSON.stringify(result.passes[0].verdict));
-    assert.strictEqual(result.final.image.length, 1474560);
     assert.ok(!result.final.stats.blank);
+    if (tier.builder === "floppy") assert.strictEqual(result.final.artifacts["floppy.img"].length, 1474560);
+    else assert.ok(result.final.artifacts["forge.tar.gz"].length > 1000);
   });
 }
 
-test("build errors and blank screens are fed back to the generator", async () => {
+test("build errors and blank screens are fed back to the generator", { timeout: 60000 }, async () => {
   const tier = getTier("real16");
   const template = await readTemplate(tier);
   const seen = [];
@@ -27,7 +34,7 @@ test("build errors and blank screens are fed back to the generator", async () =>
     describe: () => "scripted",
     async generate({ pass, feedback }) {
       seen.push(feedback);
-      if (pass === 1) return { files: { ...template, "kernel.asm": "[org 0x8000]\n mov ax, \n" }, notes: "broken" };
+      if (pass === 0) return { files: { ...template, "kernel.asm": "[org 0x8000]\n mov ax, \n" }, notes: "broken" };
       if (pass === 2) return { files: { ...template, "kernel.asm": "[org 0x8000]\n mov ax, 0x0013\n int 0x10\n cli\n hlt\n" }, notes: "blank" };
       return { files: template, notes: "fixed" };
     },
@@ -42,20 +49,55 @@ test("build errors and blank screens are fed back to the generator", async () =>
   assert.match(seen[2], /nothing was drawn/i);
 });
 
+test("big mode: architect plans, writers write, compile errors are repaired", { timeout: 120000 }, async () => {
+  const tier = getTier("prot32");
+  const good = '/* Hello app */\n#include "kc.h"\nstatic void hello_open(void) { wm_create("Hello", -1, -1, 300, 200); }\nKC_APP(hello, "Hello", icon_info, hello_open);\n';
+  const calls = { architect: 0, writer: 0 };
+  const provider = {
+    describe: () => "scripted",
+    async complete({ system }) {
+      if (system === prompts.architectSystem(tier, 10)) {
+        calls.architect++;
+        return { text: '<plan>{"name":"HelloOS","summary":"adds an app","files":[{"path":"hello.c","purpose":"hello app"},{"path":"../evil.c","purpose":"x"}]}</plan>' };
+      }
+      calls.writer++;
+      const src = calls.writer === 1 ? "/* broken */\nint x = ;\n" : good;
+      return { text: `<file name="hello.c">\n${src}</file>` };
+    },
+    async critique() { return { pass: true, summary: "ok", issues: [] }; },
+  };
+  const result = await buildOS({ prompt: "an OS called HelloOS", tier, provider, maxPasses: 1, bigFiles: 10 });
+  assert.ok(result.verified, JSON.stringify(result.passes.map((p) => p.verdict)));
+  assert.strictEqual(calls.architect, 1);
+  assert.strictEqual(calls.writer, 2, "broken file rewritten once");
+  assert.deepStrictEqual(result.plan.files.map((f) => f.path), ["hello.c"], "unsafe paths dropped from the plan");
+  assert.strictEqual(result.final.files["hello.c"], good);
+  assert.ok(result.final.files["kc.h"], "SDK kept");
+});
+
 test("sources cannot read host files", () => {
   assert.ok(validateSources({ "kernel.asm": 'incbin "/etc/passwd"' }).length);
   assert.ok(validateSources({ "kernel.c": '#include "../secret.h"' }).length);
   assert.ok(validateSources({ "kernel.c": 'asm(".include \\"x\\"");' }).length);
+  assert.ok(validateSources({ "kernel.c": "#include <stdio.h>" }).length, "no system headers when freestanding");
   assert.ok(validateSources({ "../boot.asm": "" }).length);
   assert.deepStrictEqual(validateSources({ "kernel.c": '#include "util.h"' }), []);
+
+  const linux = getTier("linux64");
+  assert.deepStrictEqual(validateSources({ "rootfs/etc/motd": "hi", "src/app.c": "#include <stdio.h>\n" }, linux), []);
+  assert.ok(validateSources({ "etc/passwd": "" }, linux).length);
+  assert.ok(validateSources({ "rootfs/../x": "" }, linux).length);
+  assert.ok(validateSources({ "src/a/b.c": "" }, linux).length);
+  assert.ok(validateSources({ "src/app.c": "#include </etc/shadow>" }, linux).length);
 });
 
 test("parsers", () => {
-  const { files, notes } = parseFiles('<file name="a.asm">\nnop\n</file>\n<file name="b.c">\nint x;\n</file>\n<notes>did it</notes>');
+  const { files, notes } = prompts.parseFiles('<file name="a.asm">\nnop\n</file>\n<file name="b.c">\nint x;\n</file>\n<notes>did it</notes>');
   assert.deepStrictEqual(files, { "a.asm": "nop\n", "b.c": "int x;\n" });
   assert.strictEqual(notes, "did it");
-  assert.deepStrictEqual(parseVerdict('<verdict>{"pass": false, "summary": "s", "issues": ["i"]}</verdict>'), { pass: false, summary: "s", issues: ["i"] });
-  assert.strictEqual(parseVerdict("garbage").pass, false);
+  assert.deepStrictEqual(prompts.parseVerdict('<verdict>{"pass": false, "summary": "s", "issues": ["i"]}</verdict>'), { pass: false, summary: "s", issues: ["i"] });
+  assert.strictEqual(prompts.parseVerdict("garbage").pass, false);
+  assert.deepStrictEqual(prompts.parseTagged('x <fixes>[{"path":"a.c"}]</fixes>', "fixes"), [{ path: "a.c" }]);
 });
 
 test("anthropic provider sends a well-formed streaming request", async () => {
@@ -83,11 +125,14 @@ test("anthropic provider sends a well-formed streaming request", async () => {
     const provider = createAnthropicProvider({ client });
     const out = await provider.generate({ prompt: "p", tier: getTier("prot32"), templateFiles: { "boot.asm": "x" } });
     assert.deepStrictEqual(out.files, { "boot.asm": "nop\n" });
+    const big = await provider.complete({ system: "s", content: "c", effort: "medium", maxTokens: 1000 });
+    assert.match(big.text, /nop/);
     const { headers, body } = requests[0];
     assert.strictEqual(body.model, "claude-opus-5-5");
     assert.strictEqual(body.stream, true);
     assert.strictEqual(body.fallbacks, "default");
     assert.deepStrictEqual(body.thinking, { type: "adaptive" });
+    assert.deepStrictEqual(requests[1].body.output_config, { effort: "medium" });
     assert.match(headers["anthropic-beta"], /server-side-fallback-2026-07-01/);
   } finally {
     server.close();
