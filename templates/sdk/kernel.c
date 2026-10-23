@@ -9,7 +9,7 @@ void kmain(void)
     kc_log("%s booting (%s)", theme.os_name, kc_arch_name());
     mem_init();
     arch_init();
-    gfx_init(800, 600);
+    gfx_init(kc_hw.width, kc_hw.height);
     fs_init();
     input_init();
     wm_init();

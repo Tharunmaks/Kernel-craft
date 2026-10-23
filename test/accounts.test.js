@@ -129,6 +129,16 @@ test("Razorpay webhook: signed, amount-checked, activates the plan", async () =>
   assert.strictEqual((await api("GET", "/api/me")).body.user.planExpires, expires);
 });
 
+test("config lists hardware options and the app catalog; apps can be fetched", async () => {
+  const api = client();
+  const config = (await api("GET", "/api/config")).body;
+  assert.ok(config.hardware.resolutions.includes("1920x1080"));
+  assert.ok(config.apps.some((a) => a.id === "browser"));
+  const app = await api("GET", "/api/apps/browser");
+  assert.match(app.body.files["app_browser.c"], /KC_APP\(browser/);
+  assert.strictEqual((await api("GET", "/api/apps/nope")).status, 404);
+});
+
 test("dev billing is off when Razorpay is configured", async () => {
   const api = client();
   await api("POST", "/api/auth/signup", { email: "e@example.com", password: "password123" });

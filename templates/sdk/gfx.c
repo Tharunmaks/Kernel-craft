@@ -11,6 +11,15 @@ static surface screen;
 #define VBE_INDEX 0x01CE
 #define VBE_DATA 0x01CF
 static void vbe_write(u16 index, u16 value) { outw(VBE_INDEX, index); outw(VBE_DATA, value); }
+static u16 vbe_read(u16 index) { outw(VBE_INDEX, index); return inw(VBE_DATA); }
+
+u32 gfx_vram_kb(void)
+{
+    u16 blocks = vbe_read(0x0A);   /* VBE_DISPI_INDEX_VIDEO_MEMORY_64K */
+    return blocks ? (u32)blocks * 64 : (u32)kc_hw.vram_mb * 1024;
+}
+
+const char *gfx_adapter_name(void) { return "KernelCraft VGA (Bochs VBE)"; }
 
 void gfx_init(int w, int h)
 {
@@ -22,6 +31,11 @@ void gfx_init(int w, int h)
     vbe_write(2, (u16)h);
     vbe_write(3, 32);
     vbe_write(4, 0x41);       /* enable | linear framebuffer */
+    if (vbe_read(1) != (u16)w || vbe_read(2) != (u16)h) {
+        kc_log("gfx: %dx%d not supported by the adapter, using 800x600", w, h);
+        w = 800; h = 600;
+        vbe_write(4, 0); vbe_write(1, 800); vbe_write(2, 600); vbe_write(3, 32); vbe_write(4, 0x41);
+    }
     lfb = (volatile u32 *)base;
     SCREEN_W = w;
     SCREEN_H = h;

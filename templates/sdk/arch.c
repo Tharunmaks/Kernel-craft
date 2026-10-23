@@ -105,6 +105,53 @@ const char *kc_arch_name(void)
 #endif
 }
 
+/* ----------------------------------------------------------------- CPU --- */
+static void cpuid(u32 leaf, u32 *a, u32 *b, u32 *c, u32 *d)
+{
+    __asm__ volatile("cpuid" : "=a"(*a), "=b"(*b), "=c"(*c), "=d"(*d) : "a"(leaf), "c"(0));
+}
+
+void cpu_brand(char *out, size_t cap)
+{
+    u32 r[12], a, b, c, d;
+    cpuid(0x80000000u, &a, &b, &c, &d);
+    if (a < 0x80000004u) {
+        cpuid(0, &a, &r[0], &r[2], &r[1]);   /* vendor string: ebx, edx, ecx */
+        r[3] = 0;
+    } else {
+        for (u32 i = 0; i < 3; i++) cpuid(0x80000002u + i, &r[i * 4], &r[i * 4 + 1], &r[i * 4 + 2], &r[i * 4 + 3]);
+    }
+    const char *src = (const char *)r;
+    size_t n = 0;
+    while (*src == ' ') src++;
+    for (; n + 1 < cap && n < 47 && src[n]; n++) out[n] = src[n];
+    out[n] = 0;
+}
+
+/* Logical CPUs in the package (CPUID.1:EBX[23:16]); the VM's core count. */
+int cpu_count(void)
+{
+    u32 a, b, c, d;
+    cpuid(1, &a, &b, &c, &d);
+    int n = (d & (1u << 28)) ? (int)((b >> 16) & 0xFF) : 1;
+    if (n < 1) n = 1;
+    if (kc_hw.cpus > 0 && n > kc_hw.cpus) n = kc_hw.cpus;
+    return n;
+}
+
+/* ------------------------------------------------------------- speaker --- */
+void speaker_tone(u32 hz)
+{
+    if (hz < 20) { speaker_off(); return; }
+    u32 div = 1193182 / hz;
+    outb(0x43, 0xB6);
+    outb(0x42, (u8)div);
+    outb(0x42, (u8)(div >> 8));
+    outb(0x61, inb(0x61) | 3);
+}
+
+void speaker_off(void) { outb(0x61, inb(0x61) & 0xFC); }
+
 static const char *exception_names[32] = {
     "Divide by zero", "Debug", "NMI", "Breakpoint", "Overflow", "Bound range",
     "Invalid opcode", "Device not available", "Double fault", "Coprocessor overrun",

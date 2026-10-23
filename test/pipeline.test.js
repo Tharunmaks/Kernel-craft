@@ -138,3 +138,42 @@ test("anthropic provider sends a well-formed streaming request", async () => {
     server.close();
   }
 });
+
+test("hardware settings are validated and reach QEMU and the kernel", () => {
+  const hardware = require("../lib/hardware");
+  const prot32 = getTier("prot32");
+  const { hw, notes } = hardware.normalize({ resolution: "1920x1080", vramMB: 8, ramMB: 32, cpus: 64, cpuModel: "evil" }, prot32);
+  assert.ok(hw.vramMB * 1048576 >= 1920 * 1080 * 4, "framebuffer fits in graphics memory");
+  assert.ok(hw.ramMB >= 64, "RAM raised for the back buffers");
+  assert.strictEqual(hw.cpus, 1, "unsupported core count falls back");
+  assert.strictEqual(hw.cpuModel, "basic");
+  assert.ok(notes.some((n) => /RAM raised/.test(n)));
+  assert.strictEqual(hardware.normalize({ resolution: "1920x1080", vramMB: 8 }, prot32).hw.vramMB, 8);
+  const args = hardware.qemuArgs({ ...hw, cpus: 4 }, prot32).join(" ");
+  assert.match(args, /-m \d+ -smp 4 -cpu qemu32 -vga none -device VGA,vgamem_mb=8/);
+  assert.match(hardware.configSource(hw), /kc_hw = \{ 1920, 1080,/);
+  assert.strictEqual(hardware.normalize({ resolution: "1920x1080", vramMB: 8 }, prot32).hw.vramMB, 8);
+  const linux = hardware.normalize({ resolution: "1920x1080" }, getTier("linux64")).hw;
+  assert.strictEqual(linux.resolution, "1280x1024", "Linux falls back to a VESA mode");
+  assert.match(hardware.linuxCmdline(linux), /vga=0x31b/);
+});
+
+for (const target of ["prot32", "long64"]) {
+  test(`${target}: every catalog app builds and registers at a custom resolution`, { timeout: 120000 }, async () => {
+    const apps = require("../lib/apps");
+    const tier = getTier(target);
+    const extraFiles = apps.filesFor(apps.list().map((a) => a.id), tier);
+    const result = await buildOS({ prompt: "an OS called AppOS", tier, provider: createOfflineProvider(), maxPasses: 1, extraFiles, hardware: { resolution: "1024x768", cpus: 2, ramMB: 128 } });
+    assert.ok(result.verified, JSON.stringify(result.passes[0].verdict));
+    assert.match(result.final.serialLog, /gfx: 1024x768x32/);
+    assert.match(result.final.serialLog, new RegExp(`wm: ${6 + apps.list().length} apps registered`));
+    assert.ok(result.final.files["app_browser.c"]);
+    assert.ok(!result.final.files["kc_config.c"], "engine config is not saved as a project file");
+  });
+}
+
+test("apps are only offered for SDK targets", () => {
+  const apps = require("../lib/apps");
+  assert.throws(() => apps.filesFor(["paint"], getTier("real16")), /32-bit or 64-bit/);
+  assert.throws(() => apps.filesFor(["../../etc/passwd"], getTier("prot32")), /Unknown app/);
+});

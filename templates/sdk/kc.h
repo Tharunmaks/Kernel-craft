@@ -82,6 +82,24 @@ void sleep_ms(u32 ms);
 void kc_panic(const char *fmt, ...);
 const char *kc_arch_name(void);
 
+/* The virtual machine this OS was built for (set in the Studio's Hardware
+ * panel; the build engine generates kc_config.c with these values). */
+typedef struct {
+    int width, height;     /* screen resolution */
+    int ram_mb, vram_mb;   /* RAM and graphics memory */
+    int cpus;              /* CPU cores the VM has (the SDK runs on the boot CPU) */
+    const char *cpu_model; /* "basic" or "modern" */
+} kc_hw_config;
+extern const kc_hw_config kc_hw;
+
+/* CPUID: brand string ("QEMU Virtual CPU ...") and logical CPU count. */
+void cpu_brand(char *out, size_t cap);
+int cpu_count(void);
+
+/* PC speaker (PIT channel 2). */
+void speaker_tone(u32 hz);
+void speaker_off(void);
+
 /* PCI config space (mechanism #1) */
 u32 pci_read(u8 bus, u8 dev, u8 fn, u8 off);
 bool pci_find(u16 vendor, u16 device, u8 *bus, u8 *dev, u8 *fn);
@@ -150,6 +168,8 @@ surface *gfx_screen(void);        /* back buffer */
 void gfx_present(void);           /* back buffer -> LFB (cursor drawn on top) */
 void gfx_present_rect(rect r);
 void gfx_move_cursor(int x, int y);  /* hardware-style cursor drawn over the LFB */
+u32 gfx_vram_kb(void);            /* graphics memory reported by the adapter */
+const char *gfx_adapter_name(void);
 
 void draw_pixel(surface *s, int x, int y, color c);
 void fill_rect(surface *s, int x, int y, int w, int h, color c);
@@ -229,6 +249,8 @@ struct kc_window {
     kc_event_fn on_event;  /* key + mouse events (client coordinates) */
     kc_close_fn on_close;  /* free your state; window memory is freed by the WM */
     void *state;           /* app data */
+    u32 tick_ms;           /* >0: EV_TICK every tick_ms (games, clocks); 0: every 500 ms */
+    u32 next_tick;
     bool minimized, maximized, dirty;
     rect restore_frame;
     kc_window *next;       /* z-order list, bottom to top */
@@ -304,6 +326,12 @@ void icon_chart(surface *s, int x, int y);
 void icon_gear(surface *s, int x, int y);
 void icon_info(surface *s, int x, int y);
 void icon_calculator(surface *s, int x, int y);
+void icon_globe(surface *s, int x, int y);
+void icon_brush(surface *s, int x, int y);
+void icon_game(surface *s, int x, int y);
+void icon_clock(surface *s, int x, int y);
+void icon_calendar(surface *s, int x, int y);
+void icon_music(surface *s, int x, int y);
 
 /* Shell: run a command line, output via print. cwd is shared by all terminals. */
 void shell_execute(const char *line, void (*print)(const char *));

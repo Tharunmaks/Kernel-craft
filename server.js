@@ -19,6 +19,8 @@ const { planFor, planForTarget, publicPlans } = require("./lib/plans");
 const store = require("./lib/store");
 const auth = require("./lib/auth");
 const billing = require("./lib/billing");
+const hardware = require("./lib/hardware");
+const apps = require("./lib/apps");
 
 const PORT = Number(process.env.PORT) || 8086;
 const MAX_CONCURRENT_BUILDS = Number(process.env.KC_MAX_BUILDS) || 2;
@@ -173,6 +175,7 @@ async function runBuildJob(req, res, user, { tier, job, saveAs }) {
         artifacts: final.artifacts,
         passes: result.passes,
         verified: result.verified,
+        hardware: result.hardware,
       });
     }
     const payload = {
@@ -185,6 +188,7 @@ async function runBuildJob(req, res, user, { tier, job, saveAs }) {
       artifacts: final?.artifacts ? Object.keys(final.artifacts) : [],
       files: final?.files ?? result.lastFiles ?? null,
       serialLog: final?.serialLog ?? "",
+      hardware: result.hardware,
       passes: result.passes.map((p) => serializePass(p, !streaming)),
       account: account(store.getUser(user.id)),
     };
@@ -220,6 +224,9 @@ async function buildOSRoute(req, res) {
     saveAs = { prompt };
   }
   checkTarget(plan, tier);
+  let extraFiles = null;
+  try { if (Array.isArray(body.apps) && body.apps.length) extraFiles = apps.filesFor(body.apps.slice(0, 20), tier); } catch (err) { throw new HttpError(400, err.message); }
+  const hw = body.hardware || (body.projectId ? ownProject(user, body.projectId).hardware : null);
   const usage = store.usageToday(user.id);
   if ((usage.ai || 0) >= plan.aiBuildsPerDay) throw new HttpError(429, `You have used all ${plan.aiBuildsPerDay} AI builds for today on the ${plan.name} plan`, { upgrade: plan.id === "max" ? null : "max" });
   store.addUsage(user.id, "ai");
@@ -227,7 +234,7 @@ async function buildOSRoute(req, res) {
   return runBuildJob(req, res, user, {
     tier,
     saveAs,
-    job: (emit) => buildOS({ prompt, tier, provider, maxPasses: plan.maxPasses, bigFiles: plan.bigFiles, baseFiles, changeRequest, emit }),
+    job: (emit) => buildOS({ prompt, tier, provider, maxPasses: plan.maxPasses, bigFiles: plan.bigFiles, baseFiles, changeRequest, extraFiles, hardware: hw, emit }),
   });
 }
 
@@ -244,15 +251,17 @@ async function rebuildRoute(req, res) {
   if ((usage.manual || 0) >= plan.manualBuildsPerDay) throw new HttpError(429, "Daily rebuild limit reached");
   store.addUsage(user.id, "manual");
   let saveAs = { name: "Edited OS", prompt: "Manual build", request: "Manual edit" };
+  let hw = body.hardware;
   if (body.projectId) {
     const project = ownProject(user, body.projectId);
+    hw = hw || project.hardware;
     if (project.target !== tier.id) throw new HttpError(400, "Target does not match the project");
     saveAs = { projectId: project.id, request: "Manual edit" };
   }
   return runBuildJob(req, res, user, {
     tier,
     saveAs,
-    job: (emit) => buildOS({ prompt: saveAs.prompt || "Manual build", tier, provider, maxPasses: 1, manualFiles: body.files, emit }),
+    job: (emit) => buildOS({ prompt: saveAs.prompt || "Manual build", tier, provider, maxPasses: 1, manualFiles: body.files, hardware: hw, emit }),
   });
 }
 
@@ -306,7 +315,13 @@ async function route(req, res, url) {
       billing: billing.status(),
       plans: publicPlans(),
       targets: Object.values(TARGETS).map(({ id, label, browserBootable, builder }) => ({ id, label, browserBootable, builder, plan: planForTarget(id).id })),
+      hardware: hardware.options(),
+      apps: apps.list(),
     });
+  }
+  if (method === "GET" && m(/^\/api\/apps\/([a-z0-9]+)$/)) {
+    const id = m(/^\/api\/apps\/([a-z0-9]+)$/)[1];
+    try { return sendJSON(res, 200, { id, files: apps.filesFor([id], getTier("prot32")) }); } catch (err) { throw new HttpError(404, err.message); }
   }
   if (method === "GET" && p === "/api/sdk") {
     return sendJSON(res, 200, { files: await readTemplate(getTier("prot32")), forge: await readTemplate(getTier("linux64")) });

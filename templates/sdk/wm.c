@@ -38,7 +38,10 @@ static int last_click_icon = -1;
 #define ICON_CELL_W 88
 #define ICON_CELL_H 84
 #define START_W 240
-#define START_ITEM_H 34
+/* Start menu rows shrink when many apps are installed. */
+#define START_ITEM_H start_item_h()
+int kc_app_count(void);
+static int start_item_h(void) { return KC_CLAMP((SCREEN_H - TASKBAR_H - 70) / (kc_app_count() + 1), 18, 34); }
 
 /* --------------------------------------------------------------- windows --- */
 static rect client_rect(kc_window *w) { return (rect){ w->frame.x + 1, w->frame.y + TITLE_H, w->frame.w - 2, w->frame.h - TITLE_H - 1 }; }
@@ -186,6 +189,51 @@ void icon_calculator(surface *s, int x, int y)
         for (int c = 0; c < 3; c++) fill_rect(s, x + 8 + c * 6, y + 14 + r * 5, 4, 3, RGB(220, 224, 235));
 }
 
+void icon_globe(surface *s, int x, int y)
+{
+    draw_circle(s, x + 16, y + 16, 14, RGB(40, 120, 230), true);
+    fill_round_rect(s, x + 7, y + 8, 9, 7, 3, RGB(90, 200, 120));
+    fill_round_rect(s, x + 17, y + 16, 8, 9, 3, RGB(90, 200, 120));
+    draw_circle(s, x + 16, y + 16, 14, RGB(200, 230, 255), false);
+}
+void icon_brush(surface *s, int x, int y)
+{
+    fill_round_rect(s, x + 2, y + 4, 28, 24, 6, RGB(245, 240, 230));
+    draw_circle(s, x + 9, y + 12, 3, RGB(230, 60, 60), true);
+    draw_circle(s, x + 16, y + 9, 3, RGB(60, 160, 240), true);
+    draw_circle(s, x + 23, y + 12, 3, RGB(250, 200, 50), true);
+    draw_circle(s, x + 10, y + 20, 3, RGB(70, 200, 110), true);
+    draw_line(s, x + 17, y + 26, x + 28, y + 15, RGB(120, 80, 40));
+}
+void icon_game(surface *s, int x, int y)
+{
+    fill_round_rect(s, x + 2, y + 9, 28, 16, 7, RGB(120, 90, 220));
+    fill_rect(s, x + 7, y + 16, 8, 2, RGB(255, 255, 255));
+    fill_rect(s, x + 10, y + 13, 2, 8, RGB(255, 255, 255));
+    draw_circle(s, x + 22, y + 15, 2, RGB(255, 210, 80), true);
+    draw_circle(s, x + 25, y + 19, 2, RGB(90, 230, 160), true);
+}
+void icon_clock(surface *s, int x, int y)
+{
+    draw_circle(s, x + 16, y + 16, 14, RGB(245, 246, 250), true);
+    draw_circle(s, x + 16, y + 16, 14, theme.accent, false);
+    draw_line(s, x + 16, y + 16, x + 16, y + 7, RGB(30, 34, 46));
+    draw_line(s, x + 16, y + 16, x + 23, y + 19, RGB(30, 34, 46));
+}
+void icon_calendar(surface *s, int x, int y)
+{
+    fill_round_rect(s, x + 3, y + 4, 26, 25, 3, RGB(250, 250, 252));
+    fill_rect(s, x + 3, y + 4, 26, 7, RGB(230, 70, 70));
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 4; c++) fill_rect(s, x + 6 + c * 6, y + 14 + r * 5, 4, 3, RGB(150, 160, 180));
+}
+void icon_music(surface *s, int x, int y)
+{
+    fill_round_rect(s, x + 2, y + 8, 28, 18, 3, RGB(250, 250, 252));
+    for (int i = 1; i < 7; i++) fill_rect(s, x + 2 + i * 4, y + 8, 1, 18, RGB(120, 120, 130));
+    for (int i = 0; i < 6; i++) if (i != 2) fill_rect(s, x + 5 + i * 4, y + 8, 3, 10, RGB(20, 20, 24));
+}
+
 /* ------------------------------------------------------------- compositing --- */
 static void build_wallpaper(void)
 {
@@ -293,9 +341,9 @@ static void draw_start_menu(surface *s)
         if (i == start_hover) fill_round_rect(s, r.x + 6, iy, r.w - 12, START_ITEM_H - 2, 5, theme.menu_hover);
         if (i < n) {
             const kc_app *a = kc_app_at(i);
-            draw_text(s, r.x + 18, iy + 9, a->title, theme.taskbar_text);
+            draw_text(s, r.x + 18, iy + (START_ITEM_H - FONT_H) / 2, a->title, theme.taskbar_text);
         } else {
-            draw_text(s, r.x + 18, iy + 9, "Restart", RGB(255, 140, 150));
+            draw_text(s, r.x + 18, iy + (START_ITEM_H - FONT_H) / 2, "Restart", RGB(255, 140, 150));
         }
     }
 }
@@ -466,13 +514,18 @@ void wm_run(void)
         while (input_poll(&ev) && handled < 64) { handle_event(&ev); handled++; }
 
         u32 now = uptime_ms();
-        if (now - last_tick >= 500) {
-            last_tick = now;
-            kc_event tick = { .type = EV_TICK };
-            for (kc_window *w = windows, *next; w; w = next) {
-                next = w->next;
-                if (w->on_event) w->on_event(w, &tick);
+        bool slow_tick = now - last_tick >= 500;
+        kc_event tick = { .type = EV_TICK };
+        for (kc_window *w = windows, *next; w; w = next) {
+            next = w->next;
+            if (!w->on_event) continue;
+            if (w->tick_ms ? (i32)(now - w->next_tick) >= 0 : slow_tick) {
+                if (w->tick_ms) w->next_tick = now + w->tick_ms;
+                w->on_event(w, &tick);
             }
+        }
+        if (slow_tick) {
+            last_tick = now;
             kc_time t;
             rtc_read(&t);
             if (t.min != last_minute) { last_minute = t.min; dirty_all = true; }

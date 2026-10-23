@@ -48,6 +48,31 @@ KC_BOOT_HOOK(setup);                             // theme, wallpaper, files at b
 
 It can also rewrite any SDK file. Memory map: font at 0x6000, kernel at 0x10000 (linker-checked to end below 0x70000), 64-bit page tables at 0x70000, stack at 0x90000, heap from 2 MB to the end of RAM.
 
+## Virtual hardware
+
+The Studio's **Hardware** panel picks the machine each OS is built for: CPU cores (1-8), CPU type (basic QEMU CPU or "modern" with every emulated feature), RAM (32 MB-2 GB), graphics memory (8-64 MB) and screen resolution (640x480 up to 1920x1080). Settings are saved with the project (`lib/hardware.js`) and applied to:
+
+- **The test VM**: `-m`, `-smp`, `-cpu`, `-device VGA,vgamem_mb=…`.
+- **The kernel**: SDK targets get an engine-generated `kc_config.c` (`kc_hw`), so `gfx_init` uses the chosen resolution. Monitor and Settings show the CPU brand and core count (CPUID), RAM, graphics memory and resolution.
+- **The browser emulator**: v86 gets the same RAM (capped at 1 GB in the browser tab) and graphics memory.
+- **Linux Forge**: kernel `vga=` mode, console size, and the exported `run-qemu.sh`.
+
+The SDK runs on the boot CPU only. Extra cores are visible to the OS, and the AI can be asked to add SMP. Linux uses all cores.
+
+## App store
+
+The **Apps** tab adds ready-made apps to 32-bit and 64-bit desktops with one click. Each app is one self-registering C file in `templates/apps/`, and adding or removing one rebuilds the OS without an AI call:
+
+| App | What it does |
+|---|---|
+| Web | Browser with the **Seek** search engine, address bar, back/forward and links. It browses built-in `kc://` sites and every file on the OS (`file:///…`). There's no network driver yet. |
+| Paint | Brush, eraser, line, rectangle, circle and fill tools, 20 colours, undo, save/open (`.ppm`) |
+| Snake, Mines | Games with sound, a timer, difficulty levels and a saved high score |
+| Clock, Calendar | Analog/digital clock with stopwatch; month view with notes per day |
+| Piano | Two octaves on the PC speaker with a demo tune |
+
+**Make any app with AI** turns a one-line description into a "Change this OS" request, and works for Linux Forge too.
+
 ## Big-OS mode
 
 On Pro (up to 10 files) and Max (up to 20 files), generation is split across agents so one OS can be far bigger than one model reply:
@@ -104,6 +129,7 @@ lib/toolchain.js       floppy and Linux builders, QEMU boot + screenshot, valida
 lib/tiers.js           build targets     lib/plans.js     plans and limits
 lib/billing.js         Razorpay          lib/auth.js      accounts and sessions
 lib/archive.js         cpio + tar        lib/png.js       PPM → PNG
-templates/             16bit, sdk (+ os32/os64 entry and linker scripts), linux64
+lib/hardware.js        virtual hardware  lib/apps.js      app catalog
+templates/             16bit, sdk (+ os32/os64 entry and linker scripts), apps, linux64
 public/                the web app (home, studio, projects, pricing, docs)
 ```

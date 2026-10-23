@@ -19,6 +19,8 @@
     image: null,              // { bytes, name, browserBootable }
     artifacts: [],            // names of downloadable artifacts for the project
     building: false,
+    hardware: null,           // { resolution, ramMB, vramMB, cpus, cpuModel }
+    selectedApps: new Set(),  // catalog apps picked before the first build
   };
 
   const IDEAS = {
@@ -257,8 +259,12 @@
       state.target = project.target;
       setFiles(files || {});
       state.artifacts = project.artifacts || [];
+      state.hardware = { ...defaultHardware(), ...(project.hardware || {}) };
+      state.selectedApps.clear();
       renderProjectHead();
       renderTargets();
+      renderHardware();
+      renderApps();
       renderExportMenu();
       resetGallery();
       const last = project.history[project.history.length - 1];
@@ -276,8 +282,11 @@
   function newProject() {
     state.project = null;
     state.artifacts = [];
+    state.hardware = defaultHardware();
+    state.selectedApps.clear();
     setFiles({});
     renderProjectHead();
+    renderHardware();
     renderExportMenu();
     resetGallery();
     if (location.hash.startsWith("#/studio/")) location.hash = "#/studio";
@@ -312,9 +321,13 @@
         locked ? h("span", { className: "lock", textContent: `🔒 ${planName}` }) : null,
       );
       el.onclick = () => {
+        const wasLinux = state.target === "linux64";
         state.target = t.id;
+        if (wasLinux !== (t.id === "linux64")) state.hardware = defaultHardware();
         renderTargets();
         renderChips();
+        renderHardware();
+        renderApps();
       };
       box.append(el);
     }
@@ -367,8 +380,8 @@
     serialWrite(`\n--- booting ${label} ---\n`);
     emulator = new V86({
       wasm_path: "/vendor/v86.wasm",
-      memory_size: 64 * 1024 * 1024,
-      vga_memory_size: 8 * 1024 * 1024,
+      memory_size: browserRamMB() * 1024 * 1024,
+      vga_memory_size: (hw().vramMB || 16) * 1024 * 1024,
       screen: { container: $("screen_container"), use_graphical_text: true },
       bios: { url: "/vendor/bios/seabios.bin" },
       vga_bios: { url: "/vendor/bios/vgabios.bin" },
@@ -377,7 +390,7 @@
     });
     emulator.add_listener("screen-set-size", ([w, hgt, bpp]) => ($("m-video").textContent = bpp ? `${w}×${hgt}×${bpp}` : `${w}×${hgt} text`));
     emulator.add_listener("serial0-output-byte", (b) => serialWrite(String.fromCharCode(b)));
-    $("m-mem").textContent = "64 MB + 8 MB VGA";
+    $("m-mem").textContent = `${browserRamMB()} MB + ${hw().vramMB} MB VGA`;
   }
 
   function showPreview(src, message) {
@@ -502,6 +515,7 @@
     state.activeFile = Object.keys(files).find((n) => /kernel\.(c|asm)$|^rootfs\/init$/.test(n)) || Object.keys(files)[0] || null;
     renderFileList();
     showFile();
+    renderApps();
   }
 
   function renderFileList() {
@@ -555,13 +569,13 @@
   $("rebuild").onclick = async () => {
     if (!Object.keys(state.files).length) return toast("Nothing to build yet");
     if (!requireSignIn()) return;
-    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project?.id });
+    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project?.id, hardware: hw() });
   };
 
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.onclick = () => {
       document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-      for (const name of ["display", "code", "serial"]) $(`tab-${name}`).hidden = tab.dataset.tab !== name;
+      for (const name of ["display", "code", "apps", "serial"]) $(`tab-${name}`).hidden = tab.dataset.tab !== name;
     };
   });
 
@@ -620,6 +634,8 @@
     $("build").disabled = busy;
     $("rebuild").disabled = busy;
     $("build").textContent = busy ? "Working…" : state.project ? "Apply change with AI" : "Build OS";
+    $("hw-apply").disabled = $("custom-app-btn").disabled = busy;
+    renderApps();
   }
 
   $("build").onclick = async () => {
@@ -632,7 +648,9 @@
       location.hash = "#/pricing";
       return;
     }
-    const body = state.project ? { projectId: state.project.id, change: text } : { prompt: text, target: state.target };
+    const body = state.project
+      ? { projectId: state.project.id, change: text, hardware: hw() }
+      : { prompt: text, target: state.target, hardware: hw(), apps: isSdkTarget() ? [...state.selectedApps] : [] };
     await runBuild("/api/build-os", body);
   };
 
@@ -673,14 +691,141 @@
     state.project = project;
     state.target = project.target;
     state.artifacts = project.artifacts || [];
+    if (project.hardware) state.hardware = { ...project.hardware };
+    state.selectedApps.clear();
     renderProjectHead();
     renderExportMenu();
+    renderHardware();
+    renderApps();
     if (first) history.replaceState(null, "", `#/studio/${project.id}`);
     $("prompt").value = "";
     if (result.serialLog) serialWrite(`\n--- verification VM serial log ---\n${result.serialLog}\n`);
     await bootProjectArtifact(screenshots[result.finalPass]);
     toast(result.verified ? "Your OS is ready!" : "Built, but the vision check found problems. See the passes below.");
   }
+
+  // ------------------------------------------------------------- hardware ---
+  const HW_FIELDS = ["cpus", "cpuModel", "ramMB", "vramMB", "resolution"];
+  const isSdkTarget = () => state.target === "prot32" || state.target === "long64";
+  function defaultHardware() {
+    const o = state.config?.hardware;
+    if (!o) return { resolution: "800x600", ramMB: 64, vramMB: 16, cpus: 1, cpuModel: "basic" };
+    return { ...(state.target === "linux64" ? o.linuxDefaults : o.defaults) };
+  }
+  const hw = () => state.hardware || defaultHardware();
+  // v86 runs inside the browser tab, so its RAM is capped to keep tabs healthy.
+  const browserRamMB = () => Math.min(hw().ramMB || 64, 1024);
+  const sameHardware = (a, b) => HW_FIELDS.every((f) => String(a?.[f]) === String(b?.[f]));
+
+  function hwText(x) {
+    const model = x.cpuModel === "modern" ? "modern" : "basic";
+    return state.target === "real16"
+      ? `${x.cpus} core · ${x.ramMB} MB RAM`
+      : `${x.cpus} core${x.cpus > 1 ? "s" : ""} ${model} · ${x.ramMB} MB · ${x.resolution.replace("x", "×")} · ${x.vramMB} MB VRAM`;
+  }
+
+  function renderHardware() {
+    const o = state.config?.hardware;
+    if (!o) return;
+    const x = hw();
+    const linux = state.target === "linux64";
+    const fill = (id, values, label = (v) => v) => {
+      const sel = $(`hw-${id}`);
+      sel.innerHTML = "";
+      for (const v of values) sel.append(h("option", { value: v, textContent: label(v) }));
+      sel.value = x[id];
+    };
+    fill("cpus", o.cpus, (v) => `${v} core${v > 1 ? "s" : ""}`);
+    fill("cpuModel", Object.keys(o.cpuModels), (v) => o.cpuModels[v]);
+    fill("ramMB", o.ramMB, (v) => (v >= 1024 ? `${v / 1024} GB` : `${v} MB`));
+    fill("vramMB", o.vramMB, (v) => `${v} MB`);
+    fill("resolution", linux ? o.linuxResolutions : o.resolutions, (v) => v.replace("x", " × "));
+    $("hw-resolution").disabled = $("hw-vramMB").disabled = state.target === "real16";
+    $("hw-summary").textContent = hwText(x);
+    const notes = [];
+    const [w, hgt] = x.resolution.split("x").map(Number);
+    if (state.target === "real16") notes.push("16-bit OSes choose their own BIOS video mode, so resolution and graphics memory don't apply.");
+    else if (w * hgt * 4 > x.vramMB * 1048576) notes.push(`${x.resolution} needs more graphics memory; it will be raised automatically.`);
+    if (x.cpus > 1 && !linux) notes.push("Extra cores show up in the OS; the SDK schedules on the first core (ask the AI to add SMP).");
+    if (x.ramMB > 1024 && !linux && state.target !== "long64") notes.push("The in-browser emulator uses up to 1 GB; the test VM gets the full amount.");
+    if (state.target === "long64" || linux) notes.push("These settings apply to the test VM and your exported run script.");
+    $("hw-note").textContent = notes.join(" ");
+    const changed = state.project && !sameHardware(x, { ...defaultHardware(), ...(state.project.hardware || {}) });
+    $("hw-apply").hidden = !changed;
+  }
+
+  for (const f of HW_FIELDS) {
+    $(`hw-${f}`).onchange = (e) => {
+      const v = e.target.value;
+      state.hardware = { ...hw(), [f]: f === "cpuModel" || f === "resolution" ? v : Number(v) };
+      renderHardware();
+    };
+  }
+  $("hw-apply").onclick = async () => {
+    if (!requireSignIn()) return;
+    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project.id, hardware: hw() });
+  };
+
+  // ----------------------------------------------------------------- apps ---
+  const appFile = (id) => `app_${id}.c`;
+  const installed = (id) => state.files[appFile(id)] != null;
+
+  function renderApps() {
+    const grid = $("app-grid");
+    if (!grid || !state.config) return;
+    grid.innerHTML = "";
+    const sdk = isSdkTarget();
+    const count = state.project ? state.config.apps.filter((a) => installed(a.id)).length : state.selectedApps.size;
+    $("apps-count").textContent = sdk && count ? String(count) : "";
+    $("apps-hint").textContent = !sdk
+      ? "Ready-made apps are for 32-bit and 64-bit desktops. Use “Make any app with AI” for this target."
+      : state.project ? "Adding or removing an app rebuilds your OS without using an AI build." : "Pick apps now and they're included in your first build.";
+    $("custom-app").placeholder = state.target === "linux64" ? "A terminal to-do list app that saves to /home" : "A to-do list app with checkboxes and due dates";
+    for (const a of state.config.apps) {
+      const on = state.project ? installed(a.id) : state.selectedApps.has(a.id);
+      const btn = h("button", { className: `small ${on ? "added" : "primary"}`, textContent: on ? (state.project ? "Installed · Remove" : "✓ Added") : "Add", disabled: !sdk || state.building });
+      btn.onclick = () => toggleApp(a, on);
+      grid.append(h("div", { className: `app-card${on ? " added" : ""}` },
+        h("div", { className: "app-top" },
+          h("div", { className: "app-icon", textContent: a.emoji }),
+          h("div", {}, h("b", { textContent: a.name }), h("div", { className: "app-cat", textContent: a.category })),
+        ),
+        h("p", { textContent: a.description }),
+        btn,
+      ));
+    }
+  }
+
+  async function toggleApp(app, on) {
+    if (!state.project) {
+      if (on) state.selectedApps.delete(app.id); else state.selectedApps.add(app.id);
+      renderApps();
+      return;
+    }
+    if (!requireSignIn()) return;
+    const files = { ...state.files };
+    if (on) delete files[appFile(app.id)];
+    else Object.assign(files, (await api(`/api/apps/${app.id}`)).files);
+    log("system", `${on ? "Removing" : "Installing"} ${app.name} and rebuilding…`);
+    state.files = files;
+    renderFileList();
+    await runBuild("/api/rebuild", { target: state.target, files, projectId: state.project.id, hardware: hw() });
+  }
+
+  $("custom-app-btn").onclick = async () => {
+    const idea = $("custom-app").value.trim();
+    if (!idea) return toast("Describe the app first");
+    if (state.project) {
+      if (!requireSignIn()) return;
+      await runBuild("/api/build-os", { projectId: state.project.id, change: `Add a new app to this OS: ${idea}. Give it its own icon and window${state.target === "linux64" ? " (a program in src/ that the launcher can start)" : " (KC_APP)"}.`, hardware: hw() });
+      $("custom-app").value = "";
+    } else {
+      const p = $("prompt");
+      p.value = `${p.value.trim()}${p.value.trim() ? " " : ""}Include an app: ${idea}.`;
+      $("custom-app").value = "";
+      toast("Added to your OS description. Press Build OS when ready.");
+    }
+  };
 
   // ----------------------------------------------------------------- docs ---
   $("show-kch").onclick = async (e) => {
@@ -693,7 +838,10 @@
   // ----------------------------------------------------------------- init ---
   (async () => {
     state.config = await api("/api/config");
+    state.hardware = defaultHardware();
     await refreshMe();
+    renderHardware();
+    renderApps();
     renderProjectHead();
     route();
   })();

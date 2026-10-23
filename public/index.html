@@ -67,6 +67,19 @@
         <div class="targets" id="targets"></div>
       </div>
 
+      <details class="hw-card" id="hw-card">
+        <summary><span class="hw-title">🖥 Hardware</span> <span class="hw-summary" id="hw-summary"></span></summary>
+        <div class="hw-grid">
+          <label>CPU cores<select id="hw-cpus"></select></label>
+          <label>CPU type<select id="hw-cpuModel"></select></label>
+          <label>RAM<select id="hw-ramMB"></select></label>
+          <label>Graphics memory<select id="hw-vramMB"></select></label>
+          <label class="wide">Screen resolution<select id="hw-resolution"></select></label>
+        </div>
+        <p class="hw-note muted" id="hw-note"></p>
+        <button id="hw-apply" class="small block" hidden>Apply hardware to this OS (rebuild, no AI)</button>
+      </details>
+
       <button id="build" class="primary block">Build OS</button>
       <div class="usage" id="usage"></div>
 
@@ -78,6 +91,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="display">Display</button>
         <button class="tab" data-tab="code">Code</button>
+        <button class="tab" data-tab="apps">Apps <span class="tab-count" id="apps-count"></span></button>
         <button class="tab" data-tab="serial">Serial</button>
         <div class="spacer"></div>
         <div class="toolbar">
@@ -133,6 +147,21 @@
         </div>
       </div>
 
+      <div class="tab-body apps" id="tab-apps" hidden>
+        <div class="custom-app">
+          <div>
+            <b>Make any app with AI</b>
+            <p class="muted">Describe it and the AI writes it into your OS: a to-do list, a music player, a chat app, a weather widget…</p>
+          </div>
+          <div class="row">
+            <input id="custom-app" placeholder="A to-do list app with checkboxes and due dates">
+            <button id="custom-app-btn" class="primary small">Create with AI</button>
+          </div>
+        </div>
+        <div class="apps-head"><span class="field-label">App store</span><span class="muted" id="apps-hint"></span></div>
+        <div class="app-grid" id="app-grid"></div>
+      </div>
+
       <div class="tab-body" id="tab-serial" hidden>
         <pre class="serial" id="serial"></pre>
       </div>
@@ -181,6 +210,8 @@
         <ul>
           <li><b>Code</b> tab: edit any file and press <b>Rebuild</b> to compile without AI.</li>
           <li><b>Serial</b> tab: everything the OS logs with <code>kc_log()</code> (COM1).</li>
+          <li><b>Apps</b> tab: add a browser, Paint, games, a clock, a calendar or a piano with one click, or describe any app for the AI to write.</li>
+          <li><b>Hardware</b> panel: CPU cores and type, RAM, graphics memory and screen resolution up to 1920×1080.</li>
           <li>🖱 captures the mouse for the guest; Esc releases it.</li>
           <li>Inside SDK desktops: double-click icons, drag windows by the title bar, F1 opens the start menu, Alt+Tab cycles windows.</li>
         </ul>

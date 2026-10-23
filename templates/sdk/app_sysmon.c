@@ -1,4 +1,4 @@
-/* KernelCraft SDK app: System Monitor with live CPU-idle and memory graphs. */
+/* KernelCraft SDK app: System Monitor: hardware summary plus live timer and memory graphs. */
 #include "kc.h"
 
 #define SAMPLES 60
@@ -20,13 +20,21 @@ static void paint(kc_window *w, surface *s)
 {
     mon_state *m = w->state;
     fill_rect(s, 0, 0, s->width, s->height, RGB(12, 16, 26));
-    char line[128];
-    kc_snprintf(line, sizeof line, "%s  |  %s  |  %dx%d  |  up %u s", theme.os_name, kc_arch_name(), SCREEN_W, SCREEN_H, uptime_ms() / 1000);
-    draw_text(s, 12, 10, line, RGB(230, 236, 250));
-    kc_snprintf(line, sizeof line, "Heap %u / %u KB   Windows %d   Apps %d", (u32)(mem_used() >> 10), (u32)(mem_total() >> 10), wm_window_count(), kc_app_count());
-    draw_text(s, 12, 30, line, RGB(150, 160, 185));
-    graph(s, 12, 56, s->width - 24, (s->height - 76) / 2, m->load, m->n, RGB(255, 180, 70), "Timer activity (ticks/s vs expected)");
-    graph(s, 12, 64 + (s->height - 76) / 2, s->width - 24, (s->height - 76) / 2, m->mem, m->n, theme.accent, "Heap usage %");
+    char line[128], brand[48];
+    cpu_brand(brand, sizeof brand);
+    fill_round_rect(s, 12, 10, s->width - 24, 96, 6, RGB(20, 26, 40));
+    draw_text(s, 24, 18, "Hardware", theme.accent);
+    kc_snprintf(line, sizeof line, "CPU       %s, %d core%s (%s)", brand, cpu_count(), cpu_count() == 1 ? "" : "s", kc_arch_name());
+    draw_text(s, 24, 38, line, RGB(230, 236, 250));
+    kc_snprintf(line, sizeof line, "Memory    %u MB RAM, heap %u / %u KB used", (u32)((mem_total() >> 20) + 2), (u32)(mem_used() >> 10), (u32)(mem_total() >> 10));
+    draw_text(s, 24, 56, line, RGB(230, 236, 250));
+    kc_snprintf(line, sizeof line, "Graphics  %s, %u MB VRAM, %dx%d 32-bit", gfx_adapter_name(), gfx_vram_kb() / 1024, SCREEN_W, SCREEN_H);
+    draw_text(s, 24, 74, line, RGB(230, 236, 250));
+    kc_snprintf(line, sizeof line, "%s  |  up %u s  |  %d windows  |  %d apps", theme.os_name, uptime_ms() / 1000, wm_window_count(), kc_app_count());
+    draw_text(s, 12, 114, line, RGB(150, 160, 185));
+    int gy = 138, gh = (s->height - gy - 20) / 2;
+    graph(s, 12, gy, s->width - 24, gh, m->load, m->n, RGB(255, 180, 70), "CPU timer activity (ticks/s vs expected)");
+    graph(s, 12, gy + gh + 8, s->width - 24, gh, m->mem, m->n, theme.accent, "Heap usage %");
 }
 
 static void on_event(kc_window *w, kc_event *ev)
@@ -50,7 +58,7 @@ static void on_close(kc_window *w) { kfree(w->state); }
 
 void sysmon_open(void)
 {
-    kc_window *w = wm_create("System Monitor", -1, -1, 520, 320);
+    kc_window *w = wm_create("System Monitor", -1, -1, 600, 420);
     w->state = kcalloc(1, sizeof(mon_state));
     w->on_paint = paint;
     w->on_event = on_event;

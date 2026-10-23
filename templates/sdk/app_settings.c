@@ -21,9 +21,15 @@ static void paint(kc_window *w, surface *s)
         if (presets[i].accent == theme.accent) draw_rect(s, x - 3, y - 3, 86, 66, theme.window_text);
         draw_text(s, x, y + 68, presets[i].name, theme.window_text);
     }
-    char info[96];
-    kc_snprintf(info, sizeof info, "Display %dx%d, 32-bit colour", SCREEN_W, SCREEN_H);
-    draw_text(s, 16, 150, info, RGB(100, 108, 125));
+    char info[128], brand[48];
+    cpu_brand(brand, sizeof brand);
+    draw_text(s, 16, 150, "About this computer", theme.window_text);
+    kc_snprintf(info, sizeof info, "Display   %dx%d, 32-bit colour, %u MB graphics memory", SCREEN_W, SCREEN_H, gfx_vram_kb() / 1024);
+    draw_text(s, 16, 172, info, RGB(100, 108, 125));
+    kc_snprintf(info, sizeof info, "Processor %s x%d", brand, cpu_count());
+    draw_text(s, 16, 190, info, RGB(100, 108, 125));
+    kc_snprintf(info, sizeof info, "Memory    %u MB", (u32)((mem_total() >> 20) + 2));
+    draw_text(s, 16, 208, info, RGB(100, 108, 125));
 }
 
 static void on_event(kc_window *w, kc_event *ev)
@@ -42,7 +48,7 @@ static void on_event(kc_window *w, kc_event *ev)
 
 void settings_open(void)
 {
-    kc_window *w = wm_create("Settings", -1, -1, 490, 180);
+    kc_window *w = wm_create("Settings", -1, -1, 490, 236);
     w->on_paint = paint;
     w->on_event = on_event;
 }
