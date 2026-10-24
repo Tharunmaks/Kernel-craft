@@ -1,0 +1,288 @@
+{
+  "static": true,
+  "provider": "GitHub Pages demo (no AI builds)",
+  "billing": {
+    "razorpay": false,
+    "keyId": null,
+    "devBilling": false
+  },
+  "plans": [
+    {
+      "id": "free",
+      "name": "Free",
+      "tagline": "Play with operating systems in your browser",
+      "targets": [],
+      "aiBuildsPerDay": 0,
+      "manualBuildsPerDay": 0,
+      "maxPasses": 0,
+      "bigFiles": 0,
+      "features": [
+        "v86 browser emulator",
+        "Boot the sample 16-bit and 32-bit OSes",
+        "Upload and run your own .img files",
+        "SDK documentation"
+      ],
+      "priceInr": 0
+    },
+    {
+      "id": "plus",
+      "name": "Plus",
+      "tagline": "AI builds 16-bit real-mode systems",
+      "targets": [
+        "real16"
+      ],
+      "aiBuildsPerDay": 15,
+      "manualBuildsPerDay": 40,
+      "maxPasses": 3,
+      "bigFiles": 0,
+      "features": [
+        "Everything in Free",
+        "AI-built 16-bit OSes (bootloaders, shells, DOS-style systems)",
+        "3 vision-checked repair passes per build",
+        "Edit the code and rebuild",
+        "Saved projects and .img export"
+      ],
+      "priceInr": 700
+    },
+    {
+      "id": "pro",
+      "name": "Pro",
+      "tagline": "32-bit protected-mode desktops",
+      "targets": [
+        "real16",
+        "prot32"
+      ],
+      "aiBuildsPerDay": 40,
+      "manualBuildsPerDay": 100,
+      "maxPasses": 4,
+      "bigFiles": 10,
+      "features": [
+        "Everything in Plus",
+        "32-bit OSes on the KernelCraft SDK: windows, mouse, apps, filesystem",
+        "Big-OS mode: an architect agent plans up to 10 files, writers build them in parallel",
+        "4 repair passes per build"
+      ],
+      "priceInr": 2000
+    },
+    {
+      "id": "max",
+      "name": "Max",
+      "tagline": "64-bit from scratch, or customise real Linux",
+      "targets": [
+        "real16",
+        "prot32",
+        "long64",
+        "linux64"
+      ],
+      "aiBuildsPerDay": 100,
+      "manualBuildsPerDay": 300,
+      "maxPasses": 5,
+      "bigFiles": 20,
+      "features": [
+        "Everything in Pro",
+        "64-bit long-mode OSes from scratch",
+        "Linux Forge: AI customises a real 64-bit Linux (kernel + BusyBox + your programs)",
+        "Big-OS mode with up to 20 AI-written files",
+        "5 repair passes per build"
+      ],
+      "priceInr": 10000
+    }
+  ],
+  "targets": [
+    {
+      "id": "real16",
+      "label": "16-bit Real Mode",
+      "browserBootable": true,
+      "builder": "floppy",
+      "plan": "plus"
+    },
+    {
+      "id": "prot32",
+      "label": "32-bit Protected Mode",
+      "browserBootable": true,
+      "builder": "floppy",
+      "plan": "pro"
+    },
+    {
+      "id": "long64",
+      "label": "64-bit Long Mode",
+      "browserBootable": false,
+      "builder": "floppy",
+      "plan": "max"
+    },
+    {
+      "id": "linux64",
+      "label": "Linux Forge (64-bit)",
+      "browserBootable": false,
+      "builder": "linux",
+      "plan": "max"
+    }
+  ],
+  "hardware": {
+    "resolutions": [
+      "640x480",
+      "800x600",
+      "1024x768",
+      "1280x720",
+      "1280x1024",
+      "1600x900",
+      "1920x1080"
+    ],
+    "ramMB": [
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      8192,
+      16384,
+      24576
+    ],
+    "vramMB": [
+      8,
+      16,
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096,
+      6144
+    ],
+    "limits": {
+      "vmRamMB": 4096,
+      "vgaVramMB": 512,
+      "sdkRamMB": 3072
+    },
+    "cpus": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "cpuModels": {
+      "basic": "Basic (QEMU virtual CPU)",
+      "modern": "Modern (all emulated features)"
+    },
+    "defaults": {
+      "resolution": "800x600",
+      "ramMB": 64,
+      "vramMB": 16,
+      "cpus": 1,
+      "cpuModel": "basic"
+    },
+    "linuxDefaults": {
+      "resolution": "1024x768",
+      "ramMB": 512,
+      "vramMB": 16,
+      "cpus": 2,
+      "cpuModel": "basic"
+    },
+    "linuxResolutions": [
+      "640x480",
+      "800x600",
+      "1024x768",
+      "1280x1024"
+    ]
+  },
+  "apps": [
+    {
+      "id": "browser",
+      "name": "Web",
+      "emoji": "🌐",
+      "category": "Internet",
+      "description": "Web browser with the Seek search engine, address bar, back/forward and links. Browses the OS's offline web and files (no network driver yet).",
+      "file": "app_browser.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    },
+    {
+      "id": "paint",
+      "name": "Paint",
+      "emoji": "🎨",
+      "category": "Creative",
+      "description": "Brush, eraser, line, rectangle, circle and fill tools, 20 colours, undo, and save/open drawings.",
+      "file": "app_paint.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    },
+    {
+      "id": "snake",
+      "name": "Snake",
+      "emoji": "🐍",
+      "category": "Games",
+      "description": "Classic Snake with speed-up, sound effects and a saved high score.",
+      "file": "app_snake.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    },
+    {
+      "id": "mines",
+      "name": "Mines",
+      "emoji": "💣",
+      "category": "Games",
+      "description": "Minesweeper with Easy, Medium and Hard boards, flags and a timer.",
+      "file": "app_mines.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    },
+    {
+      "id": "clock",
+      "name": "Clock",
+      "emoji": "🕒",
+      "category": "Utilities",
+      "description": "Analog and digital clock, today's date, and a stopwatch with laps.",
+      "file": "app_clock.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar",
+      "emoji": "📅",
+      "category": "Utilities",
+      "description": "Month view with today highlighted and notes for any day.",
+      "file": "app_calendar.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    },
+    {
+      "id": "piano",
+      "name": "Piano",
+      "emoji": "🎹",
+      "category": "Creative",
+      "description": "Two-octave piano on the PC speaker, playable with mouse or keyboard, with a demo tune.",
+      "file": "app_piano.c",
+      "targets": [
+        "prot32",
+        "long64"
+      ]
+    }
+  ],
+  "showcaseHardware": {
+    "resolution": "1024x768",
+    "ramMB": 256,
+    "vramMB": 16,
+    "cpus": 2,
+    "cpuModel": "modern"
+  },
+  "repo": "https://github.com/Tharunmaks/Kernel-craft",
+  "codespaces": "https://codespaces.new/Tharunmaks/Kernel-craft?quickstart=1"
+}

@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KernelCraft</title>
+  <meta name="description" content="Describe an operating system in plain English. KernelCraft's AI builds it, tests it in a VM, and boots it in your browser.">
+  <link rel="stylesheet" href="styles.css">
+  <script src="vendor/libv86.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/"><span class="logo">▣</span> KernelCraft</a>
+    <nav class="nav">
+      <a href="#/studio" data-view="studio">Studio</a>
+      <a href="#/projects" data-view="projects">My OSes</a>
+      <a href="#/pricing" data-view="pricing">Pricing</a>
+      <a href="#/docs" data-view="docs">Docs</a>
+    </nav>
+    <div class="account" id="account">
+      <button id="signin-btn" class="primary small">Sign in</button>
+    </div>
+  </header>
+
+  <div class="static-banner" id="static-banner" hidden>
+    <span>You're on the <b>GitHub Pages demo</b>: boot samples, try every app in the showcase OS, or upload your own .img. AI builds need the KernelCraft server.</span>
+    <a class="button small primary" id="codespaces-link" target="_blank" rel="noopener">Run the full app in Codespaces</a>
+  </div>
+
+  <!-- ================================================================ HOME -->
+  <main class="view" id="view-home" hidden>
+    <section class="hero">
+      <h1>Describe an operating system.<br><span class="accent">Boot it in seconds.</span></h1>
+      <p class="lead">KernelCraft's AI team plans, writes and compiles a real bootable OS from your words, tests it in a virtual machine with a vision model, fixes what's broken, and runs it right here in your browser.</p>
+      <div class="hero-actions">
+        <a class="button primary big" href="#/studio">Open the Studio</a>
+        <a class="button big" href="#/pricing">See plans</a>
+      </div>
+    </section>
+    <section class="steps">
+      <div class="step"><b>1</b><h3>Describe</h3><p>"A Windows-style desktop with a file manager, notepad and a neon theme."</p></div>
+      <div class="step"><b>2</b><h3>Architect + writers</h3><p>An architect agent splits your OS into files; writer agents build them in parallel.</p></div>
+      <div class="step"><b>3</b><h3>Compile + boot</h3><p>NASM, GCC and LD produce a disk image that boots in a headless QEMU VM.</p></div>
+      <div class="step"><b>4</b><h3>Vision test</h3><p>A vision model checks the screen and sends bugs back for repair, up to 5 passes.</p></div>
+      <div class="step"><b>5</b><h3>Play + export</h3><p>Run it in the v86 emulator, edit the code, rebuild, and download the image.</p></div>
+    </section>
+    <section class="targets-showcase">
+      <div class="showcase"><h3>16-bit Real Mode</h3><p>Boot sectors, DOS-style shells and text UIs written in assembly.</p><span class="tag">Plus</span></div>
+      <div class="showcase"><h3>32-bit Protected Mode</h3><p>Graphical desktops on the KernelCraft SDK: windows, mouse, apps and a filesystem.</p><span class="tag">Pro</span></div>
+      <div class="showcase"><h3>64-bit Long Mode</h3><p>The same SDK in x86_64 long mode, built from scratch.</p><span class="tag">Max</span></div>
+      <div class="showcase"><h3>Linux Forge</h3><p>Start from a real 64-bit Linux kernel and let the AI build your distro on top.</p><span class="tag">Max</span></div>
+    </section>
+  </main>
+
+  <!-- ============================================================== STUDIO -->
+  <main class="view studio" id="view-studio" hidden>
+    <section class="panel left">
+      <div class="project-head">
+        <div>
+          <div class="eyebrow" id="project-mode">New OS</div>
+          <div class="project-name" id="project-name">Untitled</div>
+        </div>
+        <button id="new-project" class="small" title="Start a new OS">＋ New</button>
+      </div>
+
+      <label class="field-label" for="prompt" id="prompt-label">Describe your OS</label>
+      <textarea id="prompt" rows="6" placeholder="A 32-bit Windows-style OS called Nova with a taskbar, file explorer, notepad, a paint app and a neon blue theme"></textarea>
+      <div class="chips" id="idea-chips"></div>
+
+      <div id="target-block">
+        <div class="field-label">Build target</div>
+        <div class="targets" id="targets"></div>
+      </div>
+
+      <details class="hw-card" id="hw-card">
+        <summary><span class="hw-title">🖥 Hardware</span> <span class="hw-summary" id="hw-summary"></span></summary>
+        <div class="hw-grid">
+          <label>CPU cores<select id="hw-cpus"></select></label>
+          <label>CPU type<select id="hw-cpuModel"></select></label>
+          <label>RAM<select id="hw-ramMB"></select></label>
+          <label>Graphics memory<select id="hw-vramMB"></select></label>
+          <label class="wide">Screen resolution<select id="hw-resolution"></select></label>
+        </div>
+        <p class="hw-note muted" id="hw-note"></p>
+        <button id="hw-apply" class="small block" hidden>Apply hardware to this OS (rebuild, no AI)</button>
+      </details>
+
+      <button id="build" class="primary block">Build OS</button>
+      <div class="usage" id="usage"></div>
+
+      <div class="field-label log-label">Agent thought log <button id="clear-log" class="link">clear</button></div>
+      <div class="log" id="log"></div>
+    </section>
+
+    <section class="panel center">
+      <div class="tabs">
+        <button class="tab active" data-tab="display">Display</button>
+        <button class="tab" data-tab="code">Code</button>
+        <button class="tab" data-tab="apps">Apps <span class="tab-count" id="apps-count"></span></button>
+        <button class="tab" data-tab="serial">Serial</button>
+        <div class="spacer"></div>
+        <div class="toolbar">
+          <button id="lock-mouse" class="small" title="Capture the mouse for the guest (Esc to release)">🖱 Mouse</button>
+          <button id="cad" class="small" title="Send Ctrl+Alt+Del">Ctrl+Alt+Del</button>
+          <button id="restart" class="small" title="Reboot the emulator">⟲ Reboot</button>
+          <button id="shot" class="small" title="Save a screenshot">📷</button>
+          <button id="fullscreen" class="small" title="Fullscreen">⛶</button>
+          <label class="button small" title="Boot your own floppy image">⤒ .img<input type="file" id="upload" accept=".img,.bin,.ima" hidden></label>
+          <div class="menu-wrap">
+            <button id="export" class="primary small" disabled>Export ▾</button>
+            <div class="menu" id="export-menu" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-body" id="tab-display">
+        <div class="screen-frame" id="screen-frame">
+          <div id="screen_container"><div class="text-layer"></div><canvas></canvas></div>
+          <img id="preview" alt="Screenshot from the verification VM" hidden>
+          <div class="overlay" id="overlay">
+            <h3>No OS running</h3>
+            <p class="muted">Describe an OS and press <b>Build OS</b>, or boot a sample.</p>
+            <div class="row">
+              <button class="small" data-sample="real16">Boot 16-bit sample</button>
+              <button class="small" data-sample="prot32">Boot 32-bit desktop sample</button>
+              <button class="small primary" data-sample="showcase" hidden>Boot the showcase OS (all apps)</button>
+            </div>
+          </div>
+        </div>
+        <div class="metrics">
+          <div><span>CPU</span><b id="m-cpu">idle</b></div>
+          <div><span>MIPS</span><b id="m-mips">–</b></div>
+          <div><span>FPS</span><b id="m-fps">–</b></div>
+          <div><span>Video</span><b id="m-video">–</b></div>
+          <div><span>Memory</span><b id="m-mem">–</b></div>
+          <div><span>Image</span><b id="m-image">–</b></div>
+        </div>
+      </div>
+
+      <div class="tab-body code" id="tab-code" hidden>
+        <div class="file-list">
+          <div class="file-list-head"><span>Files</span><button id="new-file" class="link">＋ file</button></div>
+          <div id="file-list"></div>
+        </div>
+        <div class="editor-wrap">
+          <div class="editor-head">
+            <span id="editor-name">No file</span>
+            <span class="spacer"></span>
+            <button id="revert" class="small">Revert</button>
+            <button id="rebuild" class="primary small">Rebuild (no AI)</button>
+          </div>
+          <textarea id="editor" spellcheck="false" placeholder="Build or open an OS to see its source code."></textarea>
+        </div>
+      </div>
+
+      <div class="tab-body apps" id="tab-apps" hidden>
+        <div class="custom-app">
+          <div>
+            <b>Make any app with AI</b>
+            <p class="muted">Describe it and the AI writes it into your OS: a to-do list, a music player, a chat app, a weather widget…</p>
+          </div>
+          <div class="row">
+            <input id="custom-app" placeholder="A to-do list app with checkboxes and due dates">
+            <button id="custom-app-btn" class="primary small">Create with AI</button>
+          </div>
+        </div>
+        <div class="apps-head"><span class="field-label">App store</span><span class="muted" id="apps-hint"></span></div>
+        <div class="app-grid" id="app-grid"></div>
+      </div>
+
+      <div class="tab-body" id="tab-serial" hidden>
+        <pre class="serial" id="serial"></pre>
+      </div>
+    </section>
+
+    <section class="panel bottom">
+      <div class="field-label">Verification passes <span class="muted" id="pass-summary"></span></div>
+      <div class="gallery" id="gallery"><p class="muted">Screenshots from each headless VM boot appear here.</p></div>
+    </section>
+  </main>
+
+  <!-- ============================================================ PROJECTS -->
+  <main class="view page" id="view-projects" hidden>
+    <h2>My operating systems</h2>
+    <div class="project-grid" id="project-grid"></div>
+  </main>
+
+  <!-- ============================================================= PRICING -->
+  <main class="view page" id="view-pricing" hidden>
+    <h2>Plans</h2>
+    <p class="muted">Prices in Indian rupees per month. Payments are handled by Razorpay (UPI, cards, net banking, wallets); KernelCraft never sees your card details.</p>
+    <div class="plans" id="plans"></div>
+    <p class="muted small-print" id="billing-note"></p>
+  </main>
+
+  <!-- ================================================================ DOCS -->
+  <main class="view page docs" id="view-docs" hidden>
+    <h2>Building operating systems with KernelCraft</h2>
+    <div class="doc-grid">
+      <article>
+        <h3>Writing good prompts</h3>
+        <ul>
+          <li>Name your OS and its look: <i>"called Nova, glassy dark theme with cyan accents"</i>.</li>
+          <li>List the apps you want: file explorer, notepad, paint, games, settings, a clock widget.</li>
+          <li>Describe behaviour: <i>"the terminal supports pipes"</i>, <i>"double-click files to open them"</i>.</li>
+          <li>Iterate: open a saved OS and use <b>Change this OS</b> to add features one at a time.</li>
+        </ul>
+        <h3>Targets</h3>
+        <ul>
+          <li><b>16-bit</b>: assembly, BIOS services, text or VGA graphics. Runs in the browser.</li>
+          <li><b>32-bit</b>: C on the KernelCraft SDK. Runs in the browser.</li>
+          <li><b>64-bit</b>: the same SDK in long mode. Verified in QEMU; export to run locally (the browser emulator is 32-bit only).</li>
+          <li><b>Linux Forge</b>: a real Linux kernel plus BusyBox; the AI writes init scripts, config and C programs. Export a .tar.gz with a QEMU run script.</li>
+        </ul>
+        <h3>In the Studio</h3>
+        <ul>
+          <li><b>Code</b> tab: edit any file and press <b>Rebuild</b> to compile without AI.</li>
+          <li><b>Serial</b> tab: everything the OS logs with <code>kc_log()</code> (COM1).</li>
+          <li><b>Apps</b> tab: add a browser, Paint, games, a clock, a calendar or a piano with one click, or describe any app for the AI to write.</li>
+          <li><b>Hardware</b> panel: CPU cores and type, RAM, graphics memory and screen resolution up to 1920×1080.</li>
+          <li>🖱 captures the mouse for the guest; Esc releases it.</li>
+          <li>Inside SDK desktops: double-click icons, drag windows by the title bar, F1 opens the start menu, Alt+Tab cycles windows.</li>
+        </ul>
+      </article>
+      <article>
+        <h3>KernelCraft SDK quick reference</h3>
+<pre class="code">#include "kc.h"
+
+/* A new app: icon on the desktop + start menu entry */
+static void paint(kc_window *w, surface *s) {
+    fill_rect(s, 0, 0, s->width, s->height, RGB(20, 24, 36));
+    draw_text(s, 16, 16, "Hello from my app", RGB(255, 255, 255));
+}
+static void on_event(kc_window *w, kc_event *ev) {
+    if (ev->type == EV_MOUSE_DOWN) { wm_notify("Clicked!"); wm_invalidate(w); }
+}
+static void hello_open(void) {
+    kc_window *w = wm_create("Hello", -1, -1, 400, 240);
+    w->on_paint = paint;
+    w->on_event = on_event;
+}
+KC_APP(hello, "Hello", icon_info, hello_open);
+
+/* A terminal command */
+static void cmd_hi(int argc, char **argv, void (*print)(const char *)) {
+    print("hi there\n");
+}
+KC_COMMAND(hi, "say hi", cmd_hi);
+
+/* Startup code: theme, wallpaper, files */
+static void setup(void) {
+    theme.os_name = "Nova";
+    theme.accent = RGB(0, 230, 255);
+    fs_write("/home/user/welcome.txt", "Hi!\n", 4);
+}
+KC_BOOT_HOOK(setup);</pre>
+        <p><a href="#" id="show-kch">View the full kc.h API</a></p>
+        <pre class="code" id="kch" hidden></pre>
+      </article>
+    </div>
+  </main>
+
+  <!-- ============================================================= DIALOGS -->
+  <dialog id="auth-dialog">
+    <form id="auth-form">
+      <button type="button" class="close" data-close>×</button>
+      <h3 id="auth-title">Sign in</h3>
+      <label class="name-field">Name<input name="name" autocomplete="name"></label>
+      <label>Email<input name="email" type="email" required autocomplete="email"></label>
+      <label>Password<input name="password" type="password" required minlength="8" autocomplete="current-password"></label>
+      <p class="error" id="auth-error"></p>
+      <button class="primary block" type="submit" id="auth-submit">Sign in</button>
+      <p class="muted center">
+        <span id="auth-switch-text">New here?</span>
+        <button type="button" class="link" id="auth-switch">Create an account</button>
+      </p>
+    </form>
+  </dialog>
+
+  <dialog id="lightbox">
+    <button class="close" data-close>×</button>
+    <img id="lightbox-img" alt="">
+    <div id="lightbox-text"></div>
+  </dialog>
+
+  <div class="toast" id="toast" hidden></div>
+  <script>window.KC_STATIC = true;</script>
+  <script src="app.js" defer></script>
+</body>
+</html>
