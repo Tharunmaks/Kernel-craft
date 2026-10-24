@@ -197,3 +197,37 @@ test("samples include the showcase OS with every app", { timeout: 60000 }, async
   assert.strictEqual(image.length, 1474560);
   await assert.rejects(buildSample("../x"), /Unknown sample/);
 });
+
+test("groq provider sends OpenAI-style requests, images included, and retries 429s", async () => {
+  const { createGroqProvider } = require("../lib/providers/groq");
+  const requests = [];
+  let first = true;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (d) => (body += d));
+    req.on("end", () => {
+      if (first) { first = false; res.writeHead(429, { "retry-after": "0" }); return res.end("{}"); }
+      requests.push({ auth: req.headers.authorization, url: req.url, body: JSON.parse(body) });
+      const text = requests.length === 1 ? '<file name="kernel.asm">\nnop\n</file>' : '<verdict>{"pass": true, "summary": "ok", "issues": []}</verdict>';
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ model: requests.at(-1).body.model, choices: [{ message: { content: text }, finish_reason: "stop" }] }));
+    });
+  });
+  await new Promise((r) => server.listen(0, r));
+  try {
+    const provider = createGroqProvider({ apiKey: "test-key", baseURL: `http://127.0.0.1:${server.address().port}` });
+    const out = await provider.generate({ prompt: "p", tier: getTier("real16"), templateFiles: { "kernel.asm": "x" } });
+    assert.deepStrictEqual(out.files, { "kernel.asm": "nop\n" });
+    const verdict = await provider.critique({ prompt: "p", tier: getTier("prot32"), png: Buffer.from("png"), stats: {}, serialLog: "", crashed: false });
+    assert.strictEqual(verdict.pass, true);
+    assert.strictEqual(requests[0].auth, "Bearer test-key");
+    assert.strictEqual(requests[0].url, "/chat/completions");
+    assert.strictEqual(requests[0].body.model, "openai/gpt-oss-120b");
+    assert.strictEqual(requests[0].body.messages[0].role, "system");
+    const parts = requests[1].body.messages[1].content;
+    assert.match(parts[0].image_url.url, /^data:image\/png;base64,/);
+    assert.strictEqual(requests[1].body.model, "meta-llama/llama-4-scout-17b-16e-instruct");
+  } finally {
+    server.close();
+  }
+});

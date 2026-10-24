@@ -13,7 +13,7 @@ prompt ─▶ architect ─▶ writers (parallel) ─▶ nasm / gcc / ld ─▶ 
 ## Run it on GitHub
 
 - **Web demo (GitHub Pages):** `.github/workflows/pages.yml` publishes a static version on every push to `main`: the emulator, the 16/32-bit samples, a showcase OS with every app, and `.img` upload. Accounts and AI builds need the server. One-time setup: **Settings → Pages → Source: GitHub Actions**. The demo is then at `https://<owner>.github.io/<repo>/`. Build it locally with `npm run build:static`.
-- **Full app (GitHub Codespaces):** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Tharunmaks/Kernel-craft?quickstart=1). The dev container installs NASM, GCC, QEMU and the Linux Forge base, then starts the server in dev-billing mode on port 8086. Add `ANTHROPIC_API_KEY` as a Codespaces secret to enable AI builds.
+- **Full app (GitHub Codespaces):** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Tharunmaks/Kernel-craft?quickstart=1). The dev container installs NASM, GCC, QEMU and the Linux Forge base, then starts the server in dev-billing mode on port 8086. Add `ANTHROPIC_API_KEY` or `GROQ_API_KEY` as a Codespaces secret to enable AI builds.
 
 ## Quick start
 
@@ -119,7 +119,11 @@ Accounts use scrypt password hashes and an HttpOnly session cookie. Data lives i
 
 ## AI providers
 
-`lib/providers/` holds pluggable providers (`KC_PROVIDER=anthropic|offline`). The Claude provider uses `claude-opus-5-5` by default (`KC_MODEL`, `KC_CRITIC_MODEL` override), streaming with adaptive thinking and server-side model fallbacks. To add another vendor, implement `complete()`, `generate()` and `critique()` with `lib/prompts.js` and register it in `lib/providers/index.js`.
+`lib/providers/` holds pluggable providers (`KC_PROVIDER=anthropic|groq|offline`). With no `KC_PROVIDER`, the server uses Claude when `ANTHROPIC_API_KEY` is set, otherwise Groq when `GROQ_API_KEY` is set, otherwise offline mode.
+
+**Groq** (`GROQ_API_KEY`): code is written by `openai/gpt-oss-120b` and screenshots are checked by `meta-llama/llama-4-scout-17b-16e-instruct` (override with `GROQ_MODEL`, `GROQ_CRITIC_MODEL`). Free-tier rate limits are tight, so the provider waits and retries on HTTP 429. Big-OS builds make many calls and may need a paid tier.
+
+**Claude:** The Claude provider uses `claude-opus-5-5` by default (`KC_MODEL`, `KC_CRITIC_MODEL` override), streaming with adaptive thinking and server-side model fallbacks. To add another vendor, implement `complete()`, `generate()` and `critique()` with `lib/prompts.js` and register it in `lib/providers/index.js`.
 
 ## Security
 
