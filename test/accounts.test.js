@@ -144,3 +144,21 @@ test("dev billing is off when Razorpay is configured", async () => {
   await api("POST", "/api/auth/signup", { email: "e@example.com", password: "password123" });
   assert.strictEqual((await api("POST", "/api/billing/dev-activate", { plan: "max" })).status, 400);
 });
+
+test("the GitHub Pages origin signs in with a bearer token", async () => {
+  const pages = { Origin: "https://tharunmaks.github.io" };
+  const pre = await fetch(`${base}/api/me`, { method: "OPTIONS", headers: { ...pages, "Access-Control-Request-Headers": "authorization" } });
+  assert.strictEqual(pre.status, 204);
+  assert.strictEqual(pre.headers.get("access-control-allow-origin"), pages.Origin);
+  const other = await fetch(`${base}/api/config`, { headers: { Origin: "https://example.com" } });
+  assert.strictEqual(other.headers.get("access-control-allow-origin"), null, "other origins get no CORS access");
+
+  const res = await fetch(`${base}/api/auth/signup`, { method: "POST", headers: { "Content-Type": "application/json", ...pages }, body: JSON.stringify({ email: "pages@example.com", password: "password123" }) });
+  const { token } = await res.json();
+  assert.ok(token, "allowed origins get the session token in the body");
+  const me = await (await fetch(`${base}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
+  assert.strictEqual(me.user.email, "pages@example.com");
+
+  const sameOrigin = await client()("POST", "/api/auth/signup", { email: "cookie@example.com", password: "password123" });
+  assert.strictEqual(sameOrigin.body.token, undefined, "same-origin sign-ins keep the token in the HttpOnly cookie only");
+});

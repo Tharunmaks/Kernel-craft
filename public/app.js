@@ -1,5 +1,6 @@
-// KernelCraft web app: routing, accounts, pricing + Razorpay, projects, and
-// the Studio (AI builds, code editor, v86 emulator, serial console).
+// KernelCraft web app: a chat-first OS builder. You describe an OS, the AI
+// builds it and it boots in the v86 emulator; every follow-up message changes
+// it. Also: accounts, pricing + Razorpay, saved projects, code editor.
 (() => {
   const $ = (id) => document.getElementById(id);
   const h = (tag, props = {}, ...children) => {
@@ -7,11 +8,16 @@
     for (const c of children.flat()) if (c != null) el.append(c);
     return el;
   };
+  const storage = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+  };
 
   const state = {
     config: null,
     me: null,                 // { user, plan, usage } or { user: null }
-    target: "prot32",
+    targetChoice: "auto",     // "auto" or a target id, for new OSes
+    target: "prot32",         // target of the open project (or last build)
     project: null,            // saved project meta
     files: {},                // current sources (editable)
     savedFiles: {},           // last built sources
@@ -20,39 +26,68 @@
     artifacts: [],            // names of downloadable artifacts for the project
     building: false,
     hardware: null,           // { resolution, ramMB, vramMB, cpus, cpuModel }
-    selectedApps: new Set(),  // catalog apps picked before the first build
+    selectedApps: new Set(),  // ready-made apps picked before the first build
   };
 
-  const IDEAS = {
-    real16: ["A DOS-style shell with a file list and a snake game", "A retro BIOS setup screen with menus", "A hacker terminal with a matrix rain intro"],
-    prot32: ["A Windows-95-style desktop with a start menu, file explorer and paint app", "A macOS-like dock with a clock widget and notes", "A neon cyberpunk OS with a music visualiser and a snake game"],
-    long64: ["A 64-bit workstation OS with a system monitor, process list and a text editor", "A kiosk OS with a big touch-style app launcher"],
-    linux64: ["A Linux distro for students with a menu-driven study timer and notes app", "A retro gaming Linux that boots into a launcher of terminal games", "A server dashboard distro that shows live CPU and memory graphs"],
+  const IDEAS = [
+    "A Windows 95 style desktop with a start menu, notepad and paint",
+    "A neon cyberpunk OS with a music visualiser and a snake game",
+    "A macOS-like desktop with a dock, clock widget and notes app",
+    "A retro DOS shell with a file list and a hacker matrix intro",
+    "A Linux distro for students with a study timer and notes",
+  ];
+  const NEXT_IDEAS = {
+    sdk: ["Add a calculator app", "Make the theme dark purple", "Add a snake game", "Show a boot animation with my OS name", "Add a file explorer"],
+    real16: ["Add a snake game", "Make the text green on black", "Add a help command", "Show an ASCII logo at boot"],
+    linux64: ["Add a menu launcher at login", "Add a to-do list program", "Show a custom welcome banner", "Add a system info command"],
   };
 
-  // The GitHub Pages build sets window.KC_STATIC: no server, so the app runs
-  // the emulator with prebuilt images and explains that builds need the server.
+  // The GitHub Pages build sets window.KC_STATIC. It has no server of its
+  // own, so it builds through a KernelCraft server the user connects
+  // (Codespaces, or their own), using a bearer token instead of a cookie.
   const STATIC = Boolean(window.KC_STATIC);
-  const SERVER_NEEDED = "This GitHub Pages demo runs the emulator only. Accounts and AI builds need the KernelCraft server: use “Run the full app in Codespaces”.";
+  let server = STATIC ? storage.get("kc_server") || "" : "";
+  const remote = () => STATIC && Boolean(server);
+  const offline = () => STATIC && !server;
+  const tokenKey = () => `kc_token:${server}`;
 
   // ------------------------------------------------------------------ api ---
+  const apiUrl = (path) => (remote() ? server : "") + path;
+  function authHeaders() {
+    const t = remote() && storage.get(tokenKey());
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  }
+
   async function staticApi(path) {
     if (path === "/api/config") return (await fetch("static.json")).json();
     if (path === "/api/me") return { user: null };
     if (path === "/api/sdk") return { files: { "kc.h": await (await fetch("sdk/kc.h")).text() } };
-    throw new Error(SERVER_NEEDED);
+    throw new Error("Connect a KernelCraft server first (⚙ next to the send button).");
   }
 
   async function api(path, { method = "GET", body } = {}) {
-    if (STATIC) return staticApi(path);
-    const res = await fetch(path, {
+    if (offline()) return staticApi(path);
+    const res = await fetch(apiUrl(path), {
       method,
-      headers: body ? { "Content-Type": "application/json" } : {},
+      headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...authHeaders() },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, data });
+    if (data.token) { storage.set(tokenKey(), data.token); delete data.token; }
     return data;
+  }
+
+  // Project files (screenshots, images) need auth, so a remote server's are
+  // fetched with the token and shown through blob URLs.
+  async function fetchFile(path) {
+    const res = await fetch(apiUrl(path), { headers: authHeaders() });
+    if (!res.ok) throw new Error(`Could not load ${path.split("/").pop()}`);
+    return res;
+  }
+  async function fileUrl(path) {
+    if (!remote()) return path;
+    return URL.createObjectURL(await (await fetchFile(path)).blob());
   }
 
   function toast(text, ms = 3500) {
@@ -73,6 +108,9 @@
     if (name === "projects") renderProjects();
     if (name === "pricing") renderPlans();
     if (name === "studio" && arg && arg !== state.project?.id) openProject(arg);
+    if (name === "studio" && !$("chat").childElementCount) welcome();
+    if (name === "studio") setTimeout(() => $("prompt").focus(), 0);
+    if (name === "home") setTimeout(() => $("hero-prompt").focus(), 0);
   }
   window.addEventListener("hashchange", route);
 
@@ -82,7 +120,7 @@
   function renderAccount() {
     const box = $("account");
     box.innerHTML = "";
-    if (STATIC) {
+    if (offline()) {
       box.append(h("a", { className: "button small", href: state.config?.repo || "#", target: "_blank", rel: "noopener", textContent: "GitHub" }));
     } else if (!state.me?.user) {
       box.append(h("button", { className: "primary small", textContent: "Sign in", onclick: () => openAuth("login") }));
@@ -103,7 +141,8 @@
   }
 
   async function signOut() {
-    await api("/api/auth/logout", { method: "POST", body: {} });
+    await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
+    if (remote()) storage.set(tokenKey(), null);
     state.me = { user: null };
     newProject();
     renderAccount();
@@ -117,7 +156,7 @@
     authMode = mode;
     afterAuth = then;
     const signup = mode === "signup";
-    $("auth-title").textContent = signup ? "Create your account" : "Sign in";
+    $("auth-title").textContent = signup ? "Create your free account" : "Sign in";
     $("auth-submit").textContent = signup ? "Create account" : "Sign in";
     $("auth-switch-text").textContent = signup ? "Already have an account?" : "New here?";
     $("auth-switch").textContent = signup ? "Sign in" : "Create an account";
@@ -136,7 +175,9 @@
       f.reset();
       renderAccount();
       toast(`Welcome, ${state.me.user.name}!`);
-      if (afterAuth) afterAuth();
+      const then = afterAuth;
+      afterAuth = null;
+      if (then) then();
       else route();
     } catch (err) {
       $("auth-error").textContent = err.message;
@@ -145,7 +186,7 @@
   document.querySelectorAll("[data-close]").forEach((b) => (b.onclick = () => b.closest("dialog").close()));
 
   function requireSignIn(then) {
-    if (STATIC) { toast(SERVER_NEEDED, 7000); return false; }
+    if (offline()) { needServer(); return false; }
     if (state.me?.user) return true;
     openAuth("signup", then);
     return false;
@@ -233,26 +274,30 @@
   async function renderProjects() {
     const grid = $("project-grid");
     grid.innerHTML = "";
-    if (STATIC) { grid.append(h("div", { className: "empty", textContent: SERVER_NEEDED })); return; }
+    if (offline()) {
+      grid.append(h("div", { className: "empty" }, "Your saved OSes live on your KernelCraft server. ", h("a", { href: "#/studio", textContent: "Connect one in the builder" }), "."));
+      return;
+    }
     if (!state.me?.user) {
       grid.append(h("div", { className: "empty" }, "Sign in to see your saved operating systems. ", h("button", { className: "primary small", textContent: "Sign in", onclick: () => openAuth("login", renderProjects) })));
       return;
     }
     const { projects } = await api("/api/projects");
     if (!projects.length) {
-      grid.append(h("div", { className: "empty" }, "No OSes yet. ", h("a", { href: "#/studio", textContent: "Build your first one" })));
+      grid.append(h("div", { className: "empty" }, "No OSes yet. ", h("a", { href: "#/", textContent: "Describe your first one" })));
       return;
     }
-    const label = (id) => state.config.targets.find((t) => t.id === id)?.label || id;
     for (const p of projects) {
       const last = p.history[p.history.length - 1];
       const shot = last?.shots?.[last.shots.length - 1];
+      const thumb = h("div", { className: "thumb" });
+      if (shot) fileUrl(`/api/projects/${p.id}/shots/${shot}`).then((u) => (thumb.style.backgroundImage = `url(${u})`)).catch(() => {});
       grid.append(h("div", { className: "project-card" },
-        h("div", { className: "thumb", style: shot ? `background-image:url(/api/projects/${p.id}/shots/${shot})` : "" }),
+        thumb,
         h("div", { className: "body" },
           h("b", { textContent: p.name || "Untitled" }),
-          h("span", { className: "muted", textContent: `${label(p.target)} · ${p.history.length} build${p.history.length === 1 ? "" : "s"}` }),
-          h("span", { className: `badge ${p.verified ? "pass" : "fail"}`, textContent: p.verified ? "VERIFIED" : "UNVERIFIED", style: "align-self:flex-start" }),
+          h("span", { className: "muted", textContent: `${targetLabel(p.target)} · ${p.history.length} version${p.history.length === 1 ? "" : "s"}` }),
+          h("span", { className: `badge ${p.verified ? "pass" : "fail"}`, textContent: p.verified ? "WORKING" : "NEEDS FIXES", style: "align-self:flex-start" }),
         ),
         h("div", { className: "actions" },
           h("a", { className: "button primary small", href: `#/studio/${p.id}`, textContent: "Open" }),
@@ -283,13 +328,26 @@
       renderHardware();
       renderApps();
       renderExportMenu();
-      resetGallery();
+      // Replay the project's history as a conversation.
+      clearChat();
+      project.history.forEach((entry, i) => {
+        const manual = entry.request === "Manual edit";
+        userMsg(manual ? "▶ Run my code edits" : entry.request);
+        const last = i === project.history.length - 1;
+        const bubble = aiMsg(h("p", { className: entry.verified ? "result-ok" : "result-warn", textContent: entry.verified ? "✓ Built and working." : "⚠ Built, but the screen check found problems." }));
+        if (last && entry.shots?.length) {
+          const shots = h("div", { className: "shots" });
+          const name = entry.shots[entry.shots.length - 1];
+          const el = h("div", { className: `shot ${entry.verified ? "pass" : "fail"}`, title: "Click to enlarge" });
+          fileUrl(`/api/projects/${id}/shots/${name}`).then((u) => { el.style.backgroundImage = `url(${u})`; el.onclick = () => openLightbox({ pass: entry.passes, screenshot: u, verdict: { pass: entry.verified, summary: entry.request, issues: [] } }); }).catch(() => {});
+          shots.append(el);
+          bubble.append(shots);
+        }
+        if (last) bubble.append(nextIdeas());
+      });
       const last = project.history[project.history.length - 1];
-      for (const [i, shot] of (last?.shots || []).entries()) {
-        addPassCard({ pass: i + 1, stage: "boot", screenshot: `/api/projects/${id}/shots/${shot}`, verdict: { pass: last.verified && i === last.shots.length - 1, summary: last.request, issues: [] } });
-      }
-      log("system", `Opened "${project.name}" (${project.history.length} builds).`);
-      await bootProjectArtifact(last?.shots?.length ? `/api/projects/${id}/shots/${last.shots[last.shots.length - 1]}` : null);
+      const shot = last?.shots?.length ? await fileUrl(`/api/projects/${id}/shots/${last.shots[last.shots.length - 1]}`).catch(() => null) : null;
+      await bootProjectArtifact(shot);
     } catch (err) {
       toast(err.message);
       location.hash = "#/studio";
@@ -303,73 +361,192 @@
     state.selectedApps.clear();
     setFiles({});
     renderProjectHead();
+    renderTargets();
     renderHardware();
     renderExportMenu();
-    resetGallery();
-    if (location.hash.startsWith("#/studio/")) location.hash = "#/studio";
+    clearChat();
+    welcome();
+    showEmpty();
+    if (location.hash.startsWith("#/studio/")) history.replaceState(null, "", "#/studio");
   }
   $("new-project").onclick = newProject;
 
   function renderProjectHead() {
     const p = state.project;
-    $("project-mode").textContent = p ? "Change this OS" : "New OS";
-    $("project-name").textContent = p ? p.name : "Untitled";
-    $("prompt-label").textContent = p ? "What should change?" : "Describe your OS";
-    $("prompt").placeholder = p ? "Add a paint app with a colour palette, and make the taskbar translucent" : "A 32-bit Windows-style OS called Nova with a taskbar, file explorer, notepad, a paint app and a neon blue theme";
+    $("project-name").textContent = p ? p.name : "New OS";
+    $("project-sub").textContent = p ? `${targetLabel(p.target)} · ${hwText(hw())}` : "Describe it and the AI builds it";
+    $("prompt").placeholder = p ? "Ask for a change… e.g. “add a calculator and make it dark”" : "Describe the OS you want…";
     $("target-block").hidden = Boolean(p);
-    $("build").textContent = p ? "Apply change with AI" : "Build OS";
-    renderChips();
+    renderSettingsSummary();
   }
 
   // -------------------------------------------------------------- targets ---
+  const targetLabel = (id) => state.config?.targets.find((t) => t.id === id)?.label || id;
+  const SHORT = { real16: "16-bit", prot32: "32-bit desktop", long64: "64-bit", linux64: "Linux" };
+
+  // "Auto" picks the OS type from the words in the request, within the plan.
+  function autoTarget(text) {
+    const allowed = plan().targets;
+    const want = /\blinux|distro|busybox/i.test(text) ? "linux64"
+      : /64.?bit|long mode|x86.?64/i.test(text) ? "long64"
+      : /16.?bit|real mode|\bdos\b|boot ?sector|\bbios\b/i.test(text) ? "real16"
+      : "prot32";
+    if (allowed.includes(want)) return { target: want };
+    const fallback = ["prot32", "real16", "long64", "linux64"].find((t) => allowed.includes(t));
+    return fallback ? { target: fallback, note: `${SHORT[want]} OSes need the ${planNameFor(want)} plan, so I'll build a ${SHORT[fallback]} OS instead.` } : { target: want };
+  }
+  const planNameFor = (target) => state.config.plans.find((p) => p.id === state.config.targets.find((t) => t.id === target)?.plan)?.name;
+
   function renderTargets() {
     const box = $("targets");
     if (!state.config) return;
     box.innerHTML = "";
     const allowed = plan().targets;
-    for (const t of state.config.targets) {
-      const locked = !allowed.includes(t.id);
-      const planName = state.config.plans.find((p) => p.id === t.plan)?.name;
-      const el = h("div", { className: `target${t.id === state.target ? " selected" : ""}${locked ? " locked" : ""}`, tabIndex: 0 },
+    const options = [{ id: "auto", label: "Auto", hint: "The AI picks from your words" }, ...state.config.targets];
+    for (const t of options) {
+      const locked = t.id !== "auto" && !allowed.includes(t.id);
+      const el = h("div", { className: `target${t.id === state.targetChoice ? " selected" : ""}${locked ? " locked" : ""}`, tabIndex: 0 },
         h("div", { className: "t-main" },
           h("b", { textContent: t.label }),
-          h("small", { textContent: t.browserBootable ? "Runs in your browser" : "Verified in QEMU · export to run" }),
+          h("small", { textContent: t.hint || (t.browserBootable ? "Runs in your browser" : "Tested in a VM · download to run") }),
         ),
-        locked ? h("span", { className: "lock", textContent: `🔒 ${planName}` }) : null,
+        locked ? h("span", { className: "lock", textContent: `🔒 ${planNameFor(t.id)}` }) : null,
       );
       el.onclick = () => {
-        const wasLinux = state.target === "linux64";
-        state.target = t.id;
-        if (wasLinux !== (t.id === "linux64")) state.hardware = defaultHardware();
+        state.targetChoice = t.id;
+        const next = t.id === "auto" ? "prot32" : t.id;
+        if ((state.target === "linux64") !== (next === "linux64")) state.hardware = null;
+        state.target = next;
+        state.hardware = state.hardware || defaultHardware();
         renderTargets();
-        renderChips();
         renderHardware();
         renderApps();
+        renderSettingsSummary();
       };
       box.append(el);
     }
   }
 
-  function renderChips() {
-    const box = $("idea-chips");
-    box.innerHTML = "";
-    if (state.project) return;
-    for (const idea of IDEAS[state.target] || []) box.append(h("span", { className: "chip", textContent: idea, onclick: () => ($("prompt").value = idea) }));
+  function renderSettingsSummary() {
+    const type = state.project ? SHORT[state.project.target] : state.targetChoice === "auto" ? "Auto" : SHORT[state.targetChoice];
+    $("settings-summary").textContent = `${type} · ${mbText(hw().ramMB)} RAM`;
   }
 
   function renderUsage() {
     const u = state.me?.usage;
-    $("usage").textContent = STATIC ? "AI builds need the KernelCraft server (see the banner above)." : !state.me?.user ? "Sign in to build. Free accounts can boot samples and upload images." :
-      u.aiLimit ? `${Math.max(0, u.aiLimit - u.aiToday)} of ${u.aiLimit} AI builds left today · ${state.me.plan.name} plan` : "Your Free plan includes the emulator and samples. Upgrade to build with AI.";
+    $("usage").textContent = offline() || !state.me?.user ? "" : u.aiLimit ? `${Math.max(0, u.aiLimit - u.aiToday)} builds left today` : "Free plan";
   }
 
-  // -------------------------------------------------------------- logging ---
-  function log(agent, message) {
-    const line = h("div", { className: "line" }, h("span", { className: `agent ${agent}`, textContent: `[${agent}]` }), message);
-    $("log").append(line);
-    $("log").scrollTop = $("log").scrollHeight;
+  // ----------------------------------------------------------------- chat ---
+  const chat = $("chat");
+  function scrollChat() { chat.scrollTop = chat.scrollHeight; }
+  function clearChat() { chat.innerHTML = ""; }
+
+  function userMsg(text) {
+    chat.append(h("div", { className: "msg user" }, h("div", { className: "bubble", textContent: text })));
+    scrollChat();
   }
-  $("clear-log").onclick = () => ($("log").textContent = "");
+
+  function aiMsg(...content) {
+    const bubble = h("div", { className: "bubble" }, ...content);
+    chat.append(h("div", { className: "msg ai" }, h("div", { className: "avatar", textContent: "▣" }), bubble));
+    scrollChat();
+    return bubble;
+  }
+
+  const p = (text) => h("p", { textContent: text });
+  const chipRow = (ideas, onPick = (idea) => send(idea)) => h("div", { className: "chips" }, ideas.map((idea) => h("span", { className: "chip", textContent: idea, onclick: () => onPick(idea) })));
+  const nextIdeas = () => chipRow(NEXT_IDEAS[state.target === "real16" || state.target === "linux64" ? state.target : "sdk"]);
+
+  function welcome() {
+    aiMsg(
+      h("p", {}, h("b", { textContent: "Hi! What OS should we build?" })),
+      p("Describe it in your own words: the look, the apps, games, a name. I'll write it, test it and boot it on the right. Then just keep chatting to change it."),
+      Object.assign(chipRow(IDEAS), { id: "welcome-ideas" }),
+    );
+    if (offline()) needServer(true);
+  }
+
+  function needServer(quiet = false) {
+    const box = aiMsg(
+      h("p", {}, h("b", { textContent: "One step before I can build" })),
+      p("This page runs on GitHub Pages, which can't compile or test operating systems. Start your own KernelCraft server in GitHub Codespaces (free, one click), make port 8086 Public in the Ports tab, and paste its address in ⚙ Settings."),
+      h("div", { className: "actions-row" },
+        h("a", { className: "button small primary", href: state.config?.codespaces || "#", target: "_blank", rel: "noopener", textContent: "Start a server in Codespaces" }),
+        h("button", { className: "small", textContent: "I have a server address", onclick: (e) => { e.stopPropagation(); openSettings(); $("server-url").focus(); } }),
+        h("button", { className: "small", textContent: "Meanwhile, try a demo OS", onclick: () => bootSample("showcase") }),
+      ),
+    );
+    box.classList.add("need-server");
+    if (!quiet) box.scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+
+  // Turns pipeline events into a friendly live progress message.
+  const STEPS = [
+    { id: "write", label: "Writing the code", agents: ["generator", "architect", "writer", "fixer"] },
+    { id: "compile", label: "Compiling", agents: ["builder"] },
+    { id: "boot", label: "Booting it in a test machine", agents: ["runner"] },
+    { id: "check", label: "Checking the screen", agents: ["critic"] },
+  ];
+  const STATUS = {
+    architect: "Planning the design…", writer: "Writing code…", generator: "Writing code…", fixer: "Fixing a problem…",
+    builder: "Compiling…", runner: "Booting your OS in a test machine…", critic: "Looking at the screen…",
+  };
+
+  function progressBubble(intro) {
+    const items = STEPS.map((s) => h("li", {}, h("span", { className: "st", textContent: "○" }), s.label));
+    const status = h("div", { className: "status-line" }, h("span", { className: "typing" }, h("i"), h("i"), h("i")), h("span", { textContent: "Getting ready…" }));
+    const shots = h("div", { className: "shots" });
+    const log = h("div", { className: "log" });
+    const details = h("details", { className: "log-details" }, h("summary", { textContent: "Show what the AI is doing" }), log);
+    const bubble = aiMsg(p(intro), h("ul", { className: "steps-list" }, items), status, shots, details);
+    let current = -1;
+    let attempt = 1;
+    const setStep = (i) => {
+      items.forEach((li, j) => {
+        li.className = j < i ? "done" : j === i ? "active" : "";
+        li.firstChild.textContent = j < i ? "✓" : j === i ? "◌" : "○";
+      });
+      current = i;
+    };
+    const setStatus = (text) => (status.lastChild.textContent = text);
+    return {
+      bubble,
+      log(agent, message) {
+        log.append(h("div", { className: "line" }, h("span", { className: `agent ${agent}`, textContent: `[${agent}]` }), message));
+        log.scrollTop = log.scrollHeight;
+        const i = STEPS.findIndex((s) => s.agents.includes(agent));
+        if (i >= 0) {
+          if (i < current) { attempt++; }
+          setStep(i);
+          setStatus(attempt > 1 && i === 0 ? `Fixing what went wrong (attempt ${attempt})…` : STATUS[agent]);
+        } else if (agent === "error") setStatus(message);
+        scrollChat();
+      },
+      pass(ev, url) {
+        const ok = ev.verdict?.pass;
+        const el = h("div", { className: `shot ${ok ? "pass" : "fail"}`, title: ev.verdict?.summary || "" }, h("span", { textContent: `#${ev.pass}` }));
+        if (url) el.style.backgroundImage = `url(${url})`;
+        el.onclick = () => openLightbox({ ...ev, screenshot: url });
+        shots.append(el);
+        if (!ok && current >= 0) items[current].className = "failed";
+        setStatus(ok ? "Looks good!" : `Found a problem: ${ev.verdict?.summary || "fixing it"}`);
+        scrollChat();
+      },
+      finish(ok, text, extra = []) {
+        status.remove();
+        if (ok) setStep(STEPS.length);
+        bubble.insertBefore(h("p", { className: ok ? "result-ok" : "result-warn", textContent: text }), shots);
+        bubble.append(...extra);
+        scrollChat();
+      },
+      fail(text) {
+        status.remove();
+        bubble.insertBefore(h("p", { className: "result-warn", textContent: text }), shots);
+        scrollChat();
+      },
+    };
+  }
 
   // ------------------------------------------------------------- emulator ---
   let emulator = null;
@@ -394,6 +571,7 @@
     $("screen_container").hidden = false;
     $("overlay").hidden = true;
     $("m-video").textContent = "–";
+    showTab("display");
     serialWrite(`\n--- booting ${label} ---\n`);
     emulator = new V86({
       wasm_path: "vendor/v86.wasm",
@@ -410,17 +588,34 @@
     $("m-mem").textContent = `${mbText(browserRamMB())} + ${mbText(browserVramMB())} VGA`;
   }
 
+  function overlay(icon, title, text, className = "overlay") {
+    const o = $("overlay");
+    o.hidden = false;
+    o.className = className;
+    o.innerHTML = "";
+    o.append(h("div", { className: "empty-screen" }, icon ? h("div", { className: "empty-icon", textContent: icon }) : null, title ? h("h3", { textContent: title }) : null, h("p", { className: "muted", textContent: text })));
+  }
+
+  function showEmpty() {
+    stopEmulator();
+    $("screen_container").hidden = true;
+    $("preview").hidden = true;
+    overlay("▣", "Your OS will appear here", "Tell the AI what to build in the chat. It boots here as soon as it's ready.");
+  }
+
+  function showBuilding() {
+    if (emulator) return; // keep the current OS running while the next version builds
+    $("preview").hidden = true;
+    overlay("▣", "Building your OS…", "Follow along in the chat. This usually takes under a minute.", "overlay building");
+  }
+
   function showPreview(src, message) {
     stopEmulator();
     for (const m of ["m-video", "m-mem", "m-image"]) $(m).textContent = "–";
     $("screen_container").hidden = true;
     $("preview").src = src || "";
     $("preview").hidden = !src;
-    const o = $("overlay");
-    o.hidden = false;
-    o.className = src ? "overlay caption" : "overlay";
-    o.innerHTML = "";
-    o.append(h("p", { className: "muted", textContent: message }));
+    overlay(null, null, message, src ? "overlay caption" : "overlay");
   }
 
   function setImage(bytes, name, browserBootable) {
@@ -432,22 +627,22 @@
     const t = state.config.targets.find((x) => x.id === state.target);
     if (!state.project || !state.artifacts.length) return;
     if (t.browserBootable && state.artifacts.includes("floppy.img")) {
-      const res = await fetch(`/api/projects/${state.project.id}/artifacts/floppy.img`);
+      const res = await fetchFile(`/api/projects/${state.project.id}/artifacts/floppy.img`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       setImage(bytes, `${slug(state.project.name)}.img`, true);
       bootImage(bytes, state.project.name);
     } else {
       showPreview(previewSrc, t.builder === "linux"
-        ? "Screenshot from the verification VM. The browser emulator is 32-bit only; export the Linux build and run it with QEMU."
-        : "Screenshot from the verification VM. The browser emulator is 32-bit only; export the image and run it with qemu-system-x86_64.");
+        ? "This is a screenshot from the test machine. Linux builds are 64-bit, which the browser emulator can't run: use Download to get it with a ready-made QEMU script."
+        : "This is a screenshot from the test machine. 64-bit OSes can't run in the browser emulator: use Download to get the image and a QEMU script.");
     }
   }
 
   const slug = (s) => (s || "kernelcraft").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "kernelcraft";
 
-  $("restart").onclick = () => state.image?.browserBootable && bootImage(state.image.bytes, state.image.name);
+  $("restart").onclick = () => state.image?.browserBootable ? bootImage(state.image.bytes, state.image.name) : toast("Nothing to restart yet");
   $("cad").onclick = () => emulator?.keyboard_send_scancodes([0x1d, 0x38, 0x53, 0xd3, 0xb8, 0x9d]);
-  $("lock-mouse").onclick = () => emulator ? emulator.lock_mouse() : toast("Boot an OS first");
+  $("lock-mouse").onclick = () => emulator ? emulator.lock_mouse() : toast("Build or boot an OS first");
   $("fullscreen").onclick = () => $("screen-frame").requestFullscreen?.();
   $("shot").onclick = () => {
     const img = emulator?.screen_make_screenshot();
@@ -462,33 +657,34 @@
     const bytes = new Uint8Array(await file.arrayBuffer());
     setImage(bytes, file.name, true);
     bootImage(bytes, file.name);
-    log("system", `Booting uploaded image ${file.name}.`);
+    renderExportMenu();
     e.target.value = "";
   };
-  document.querySelectorAll("[data-sample]").forEach((b) => (b.onclick = () => bootSample(b.dataset.sample)));
+  $("demo-link").onclick = () => bootSample("showcase");
 
-  async function bootSample(target) {
+  async function bootSample(name) {
     try {
-      log("system", `Booting the ${target === "real16" ? "16-bit" : target === "showcase" ? "showcase (all apps, 1024×768)" : "32-bit desktop"} sample...`);
       // The showcase image is built for 1024x768 with 256 MB RAM and 16 MB VRAM.
-      if (target === "showcase") { state.hardware = { ...defaultHardware(), ...(state.config.showcaseHardware || {}) }; renderHardware(); }
-      const res = await fetch(STATIC ? `samples/${target}.img` : `/api/sample/${target}.img`);
-      if (!res.ok) throw new Error("Could not build the sample");
+      if (name === "showcase") { state.hardware = { ...defaultHardware(), ...(state.config.showcaseHardware || {}) }; renderHardware(); }
+      const res = await fetch(STATIC ? `samples/${name}.img` : `/api/sample/${name}.img`);
+      if (!res.ok) throw new Error("Could not load the demo OS");
       const bytes = new Uint8Array(await res.arrayBuffer());
-      setImage(bytes, `kernelcraft-${target}-sample.img`, true);
-      bootImage(bytes, "sample");
+      setImage(bytes, `kernelcraft-${name}-demo.img`, true);
+      bootImage(bytes, "demo");
+      renderExportMenu();
+      if (name === "showcase") aiMsg(p("I booted a demo OS so you can see what KernelCraft makes: double-click the desktop icons, drag windows, press F1 for the start menu. When you're ready, tell me what your own OS should look like."));
     } catch (err) {
       toast(err.message);
     }
   }
 
-  // Metrics: instructions per second from v86, page FPS from rAF.
+  // Status bar: instructions per second from v86, page FPS from rAF.
   let lastInstr = 0, frames = 0;
   (function frame() { frames++; requestAnimationFrame(frame); })();
   setInterval(() => {
     const running = emulator && emulator.is_running();
     $("m-cpu").textContent = !emulator ? "idle" : running ? "running" : "stopped";
-    $("m-cpu").style.color = running ? "var(--pass)" : "";
+    $("m-dot").classList.toggle("on", Boolean(running));
     if (running) {
       const instr = emulator.get_instruction_counter();
       const delta = instr >= lastInstr ? instr - lastInstr : instr + 2 ** 32 - lastInstr;
@@ -507,9 +703,15 @@
     const menu = $("export-menu");
     menu.innerHTML = "";
     const items = [];
-    if (state.project) for (const a of state.artifacts) items.push(h("a", { href: `/api/projects/${state.project.id}/artifacts/${a}`, textContent: `Download ${a}` }));
-    else if (state.image) items.push(h("a", { href: "#", textContent: `Download ${state.image.name}`, onclick: (e) => { e.preventDefault(); downloadBytes(state.image.bytes, state.image.name); } }));
-    if (Object.keys(state.files).length) items.push(h("a", { href: "#", textContent: "Download sources (.txt bundle)", onclick: (e) => { e.preventDefault(); downloadSources(); } }));
+    const link = (text, fn) => h("a", { href: "#", textContent: text, onclick: (e) => { e.preventDefault(); fn(); } });
+    if (state.project) {
+      for (const a of state.artifacts) {
+        items.push(link(`Download ${a}`, async () => {
+          try { downloadBytes(new Uint8Array(await (await fetchFile(`/api/projects/${state.project.id}/artifacts/${a}`)).arrayBuffer()), a); } catch (err) { toast(err.message); }
+        }));
+      }
+    } else if (state.image) items.push(link(`Download ${state.image.name}`, () => downloadBytes(state.image.bytes, state.image.name)));
+    if (Object.keys(state.files).length) items.push(link("Download source code (.txt)", downloadSources));
     menu.append(...items);
     $("export").disabled = !items.length;
   }
@@ -586,47 +788,89 @@
     showFile();
   };
   $("rebuild").onclick = async () => {
-    if (!Object.keys(state.files).length) return toast("Nothing to build yet");
+    if (!Object.keys(state.files).length) return toast("Nothing to run yet");
     if (!requireSignIn()) return;
-    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project?.id, hardware: hw() });
+    userMsg("▶ Run my code edits");
+    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project?.id, hardware: hw() }, "Compiling your edits (no AI)…");
   };
 
-  document.querySelectorAll(".tab").forEach((tab) => {
-    tab.onclick = () => {
-      document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-      for (const name of ["display", "code", "apps", "serial"]) $(`tab-${name}`).hidden = tab.dataset.tab !== name;
-    };
-  });
-
-  // -------------------------------------------------------------- gallery ---
-  function resetGallery() {
-    $("gallery").innerHTML = "";
-    $("pass-summary").textContent = "";
+  function showTab(name) {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
+    for (const n of ["display", "code", "apps", "serial"]) $(`tab-${n}`).hidden = n !== name;
   }
-
-  function addPassCard(ev) {
-    const ok = ev.verdict?.pass;
-    const thumb = h("div", { className: "thumb" });
-    if (ev.screenshot) thumb.style.backgroundImage = `url(${ev.screenshot})`;
-    else thumb.textContent = ev.stage === "build" ? "build error" : "no screenshot";
-    const card = h("div", { className: `card ${ok ? "pass" : "fail"}` },
-      h("header", {}, h("span", { textContent: `Pass ${ev.pass} · ${ev.stage === "build" ? "build" : "boot"}` }), h("span", { className: `badge ${ok ? "pass" : "fail"}`, textContent: ok ? "PASS" : "FAIL" })),
-      thumb,
-      h("p", { textContent: ev.verdict?.summary || "" }),
-    );
-    card.onclick = () => openLightbox(ev);
-    $("gallery").append(card);
-    $("gallery").scrollLeft = $("gallery").scrollWidth;
-  }
+  document.querySelectorAll(".tab").forEach((tab) => (tab.onclick = () => showTab(tab.dataset.tab)));
 
   function openLightbox(ev) {
     $("lightbox-img").hidden = !ev.screenshot;
     $("lightbox-img").src = ev.screenshot || "";
     const box = $("lightbox-text");
     box.innerHTML = "";
-    box.append(h("h3", { textContent: `Pass ${ev.pass}: ${ev.verdict?.pass ? "PASS" : "FAIL"} — ${ev.verdict?.summary || ""}` }));
+    box.append(h("h3", { textContent: `Test ${ev.pass}: ${ev.verdict?.pass ? "looks good" : "found problems"} — ${ev.verdict?.summary || ""}` }));
     if (ev.verdict?.issues?.length) box.append(h("ul", {}, ev.verdict.issues.map((i) => h("li", {}, h("pre", { textContent: i, style: "white-space:pre-wrap" })))));
     $("lightbox").showModal();
+  }
+
+  // ------------------------------------------------------------- composer ---
+  function autosize(el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 200)}px`; }
+  function enterToSubmit(el, submit) {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+    });
+  }
+  $("prompt").addEventListener("input", (e) => autosize(e.target));
+  enterToSubmit($("prompt"), () => $("composer").requestSubmit());
+  $("composer").onsubmit = (e) => {
+    e.preventDefault();
+    const text = $("prompt").value.trim();
+    if (text) send(text);
+  };
+
+  // Home page: the prompt there starts a new OS in the builder.
+  enterToSubmit($("hero-prompt"), () => $("hero-form").requestSubmit());
+  $("hero-form").onsubmit = (e) => {
+    e.preventDefault();
+    const text = $("hero-prompt").value.trim();
+    if (!text) return $("hero-prompt").focus();
+    startFromHome(text);
+  };
+  function startFromHome(text) {
+    $("hero-prompt").value = "";
+    location.hash = "#/studio";
+    if (state.project) newProject();
+    send(text);
+  }
+  $("hero-chips").append(...IDEAS.slice(0, 4).map((idea) => h("span", { className: "chip", textContent: idea, onclick: () => startFromHome(idea) })));
+
+  // Settings popover (OS type, hardware, builder server).
+  function openSettings() { $("settings").hidden = false; }
+  $("settings-btn").onclick = (e) => { e.stopPropagation(); $("settings").hidden = !$("settings").hidden; };
+  $("settings-close").onclick = () => ($("settings").hidden = true);
+  $("settings").addEventListener("click", (e) => e.stopPropagation());
+  document.addEventListener("click", () => ($("settings").hidden = true));
+
+  $("server-save").onclick = async () => {
+    let url = $("server-url").value.trim().replace(/\/+$/, "");
+    if (url && !/^https?:\/\//.test(url)) url = `https://${url}`;
+    if (!url) { server = ""; storage.set("kc_server", null); await reloadConfig(); return toast("Disconnected"); }
+    try {
+      const res = await fetch(`${url}/api/config`);
+      if (!res.ok) throw new Error();
+      await res.json();
+    } catch {
+      return toast("Couldn't reach that server. In Codespaces, open the Ports tab, set port 8086 to Public, and copy its address.", 9000);
+    }
+    server = url;
+    storage.set("kc_server", url);
+    await reloadConfig();
+    $("settings").hidden = true;
+    aiMsg(h("p", { className: "result-ok", textContent: "✓ Connected to your KernelCraft server." }), p(state.me?.user ? "Tell me what to build!" : "Create a free account on it, then tell me what to build."));
+  };
+
+  async function reloadConfig() {
+    state.config = await api("/api/config");
+    await refreshMe();
+    renderHardware();
+    renderApps();
   }
 
   // ---------------------------------------------------------------- build ---
@@ -652,59 +896,96 @@
     state.building = busy;
     $("build").disabled = busy;
     $("rebuild").disabled = busy;
-    $("build").textContent = busy ? "Working…" : state.project ? "Apply change with AI" : "Build OS";
     $("hw-apply").disabled = $("custom-app-btn").disabled = busy;
+    $("prompt").placeholder = busy ? "The AI is working… you can type your next idea" : state.project ? "Ask for a change… e.g. “add a calculator and make it dark”" : "Describe the OS you want…";
     renderApps();
   }
 
-  $("build").onclick = async () => {
-    const text = $("prompt").value.trim();
-    if (!text) return toast(state.project ? "Describe the change first" : "Describe your OS first");
-    if (!requireSignIn()) return;
-    if (!state.project && !plan().targets.includes(state.target)) {
-      const needed = state.config.targets.find((t) => t.id === state.target).plan;
-      toast(`This target needs the ${state.config.plans.find((p) => p.id === needed).name} plan`);
-      location.hash = "#/pricing";
+  // Sends a chat message: a new OS, or a change to the open one.
+  async function send(text) {
+    if (state.building) return toast("Hang on, I'm still working on the last request");
+    $("settings").hidden = true;
+    if (offline()) {
+      userMsg(text);
+      $("prompt").value = "";
+      if (chat.querySelector(".need-server")) aiMsg(p("Love it! I need a builder server before I can build that. Follow the steps above, then send it again."));
+      else needServer();
       return;
     }
-    const body = state.project
-      ? { projectId: state.project.id, change: text, hardware: hw() }
-      : { prompt: text, target: state.target, hardware: hw(), apps: isSdkTarget() ? [...state.selectedApps] : [] };
-    await runBuild("/api/build-os", body);
-  };
+    if (!state.me?.user) {
+      $("prompt").value = text;
+      openAuth("signup", () => send(text));
+      return;
+    }
+    let body;
+    let note = null;
+    if (state.project) {
+      body = { projectId: state.project.id, change: text, hardware: hw() };
+    } else {
+      let target = state.targetChoice;
+      if (target === "auto") ({ target, note } = autoTarget(text));
+      if (!plan().targets.includes(target)) {
+        userMsg(text);
+        $("prompt").value = "";
+        const needed = planNameFor(target);
+        aiMsg(
+          p(plan().targets.length ? `${SHORT[target]} OSes need the ${needed} plan.` : "Building with AI starts on the Plus plan (₹700/month). The Free plan can run demo OSes and your own .img files."),
+          h("div", { className: "actions-row" }, h("a", { className: "button small primary", href: "#/pricing", textContent: "See plans" }), h("button", { className: "small", textContent: "Try a demo OS", onclick: () => bootSample("showcase") })),
+        );
+        return;
+      }
+      if (target !== state.target) {
+        if ((state.target === "linux64") !== (target === "linux64")) state.hardware = null;
+        state.target = target;
+        state.hardware = state.hardware || defaultHardware();
+      }
+      body = { prompt: text, target, hardware: hw(), apps: isSdkTarget() ? [...state.selectedApps] : [] };
+    }
+    $("welcome-ideas")?.remove();
+    userMsg(text);
+    $("prompt").value = "";
+    autosize($("prompt"));
+    const intro = state.project ? "On it! Updating your OS…" : `${note ? `${note} ` : ""}Great idea! Building a ${SHORT[state.target]} OS for you…`;
+    await runBuild("/api/build-os", body, intro);
+  }
 
-  async function runBuild(url, body) {
+  async function runBuild(url, body, intro) {
     if (state.building) return;
     setBusy(true);
-    resetGallery();
+    showBuilding();
+    const progress = progressBubble(intro);
     const screenshots = {};
     try {
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch(apiUrl(url), { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(body) });
       if (!(res.headers.get("content-type") || "").includes("ndjson")) {
         const err = await res.json().catch(() => ({}));
-        if (err.upgrade) { toast(`${err.error}. Opening plans…`); location.hash = "#/pricing"; }
+        if (err.upgrade) progress.bubble.append(h("div", { className: "actions-row" }, h("a", { className: "button small primary", href: "#/pricing", textContent: "See plans" })));
         throw new Error(err.error || `HTTP ${res.status}`);
       }
+      let finished = false;
       for await (const ev of ndjson(res)) {
-        if (ev.type === "log") log(ev.agent, ev.message);
-        else if (ev.type === "pass") { screenshots[ev.pass] = ev.screenshot; addPassCard(ev); }
-        else if (ev.type === "error") log("error", ev.message);
-        else if (ev.type === "result") await handleResult(ev, screenshots);
+        if (ev.type === "log") progress.log(ev.agent, ev.message);
+        else if (ev.type === "pass") { screenshots[ev.pass] = ev.screenshot; progress.pass(ev, ev.screenshot); }
+        else if (ev.type === "error") { progress.log("error", ev.message); progress.fail(`Something went wrong: ${ev.message}`); finished = true; }
+        else if (ev.type === "result") { await handleResult(ev, screenshots, progress); finished = true; }
       }
+      if (!finished) progress.fail("The connection to the server dropped. Try again.");
     } catch (err) {
-      log("error", err.message);
-      toast(err.message);
+      progress.fail(`Sorry, that didn't work: ${err.message}`);
+      if (!emulator && $("preview").hidden) state.project ? overlay("▣", "", "The last request didn't finish.") : showEmpty();
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleResult(result, screenshots) {
-    const n = result.passes.length;
-    $("pass-summary").textContent = result.verified ? `verified on pass ${result.finalPass} of ${n}` : `not verified after ${n} pass${n === 1 ? "" : "es"}`;
+  async function handleResult(result, screenshots, progress) {
     if (result.account) { state.me = result.account; renderAccount(); }
     if (result.files) setFiles(result.files);
-    if (!result.projectId) { log("error", "No bootable build was produced."); return; }
+    if (!result.projectId) {
+      progress.fail("I couldn't get a version that boots this time. Try describing it a little differently, or ask for something simpler first.");
+      if (!emulator) showEmpty();
+      return;
+    }
     const first = !state.project || state.project.id !== result.projectId;
     const { project } = await api(`/api/projects/${result.projectId}`);
     state.project = project;
@@ -717,10 +998,16 @@
     renderHardware();
     renderApps();
     if (first) history.replaceState(null, "", `#/studio/${project.id}`);
-    $("prompt").value = "";
-    if (result.serialLog) serialWrite(`\n--- verification VM serial log ---\n${result.serialLog}\n`);
+    if (result.serialLog) serialWrite(`\n--- test machine console ---\n${result.serialLog}\n`);
+    const runsHere = result.browserBootable;
+    progress.finish(
+      result.verified,
+      result.verified
+        ? `✓ Done! ${project.name} is ${runsHere ? "running on the right. Click into it to use it." : "built and tested. Use Download to run it with QEMU."}`
+        : `⚠ ${project.name} built, but my screen check still sees problems${runsHere ? ". It's running on the right" : ""}. Tell me what looks wrong and I'll fix it.`,
+      [p("What next? Ask for any change:"), nextIdeas()],
+    );
     await bootProjectArtifact(screenshots[result.finalPass]);
-    toast(result.verified ? "Your OS is ready!" : "Built, but the vision check found problems. See the passes below.");
   }
 
   // ------------------------------------------------------------- hardware ---
@@ -742,7 +1029,7 @@
     const model = x.cpuModel === "modern" ? "modern" : "basic";
     return state.target === "real16"
       ? `${x.cpus} core · ${mbText(x.ramMB)} RAM`
-      : `${x.cpus} core${x.cpus > 1 ? "s" : ""} ${model} · ${mbText(x.ramMB)} · ${x.resolution.replace("x", "×")} · ${mbText(x.vramMB)} VRAM`;
+      : `${x.cpus} core${x.cpus > 1 ? "s" : ""} ${model} · ${mbText(x.ramMB)} · ${x.resolution.replace("x", "×")}`;
   }
 
   function renderHardware() {
@@ -758,24 +1045,25 @@
     };
     fill("cpus", o.cpus, (v) => `${v} core${v > 1 ? "s" : ""}`);
     fill("cpuModel", Object.keys(o.cpuModels), (v) => o.cpuModels[v]);
-    fill("ramMB", o.ramMB, (v) => (v >= 1024 ? `${v / 1024} GB` : `${v} MB`));
+    fill("ramMB", o.ramMB, mbText);
     fill("vramMB", o.vramMB, mbText);
     fill("resolution", linux ? o.linuxResolutions : o.resolutions, (v) => v.replace("x", " × "));
     $("hw-resolution").disabled = $("hw-vramMB").disabled = state.target === "real16";
-    $("hw-summary").textContent = hwText(x);
     const notes = [];
     const [w, hgt] = x.resolution.split("x").map(Number);
     if (state.target === "real16") notes.push("16-bit OSes choose their own BIOS video mode, so resolution and graphics memory don't apply.");
     else if (w * hgt * 4 > x.vramMB * 1048576) notes.push(`${x.resolution} needs more graphics memory; it will be raised automatically.`);
     if (x.cpus > 1 && !linux) notes.push("Extra cores show up in the OS; the SDK schedules on the first core (ask the AI to add SMP).");
     const lim = o.limits;
-    if (x.ramMB > lim.vmRamMB) notes.push(`The test VM gets ${mbText(lim.vmRamMB)}; the exported run-qemu.sh uses the full ${mbText(x.ramMB)}.`);
-    if (!linux && x.ramMB > lim.sdkRamMB) notes.push(`SDK kernels use up to ${mbText(lim.sdkRamMB)} of RAM (Linux Forge uses all of it).`);
+    if (x.ramMB > lim.vmRamMB) notes.push(`The test VM gets ${mbText(lim.vmRamMB)}; the downloaded run-qemu.sh uses the full ${mbText(x.ramMB)}.`);
+    if (!linux && x.ramMB > lim.sdkRamMB) notes.push(`SDK kernels use up to ${mbText(lim.sdkRamMB)} of RAM (Linux uses all of it).`);
     if (x.vramMB > lim.vgaVramMB) notes.push(`The emulated graphics card holds up to ${mbText(lim.vgaVramMB)}.`);
     if (!linux && state.target !== "long64" && (x.ramMB > 1024 || x.vramMB > 128)) notes.push("In this browser tab the emulator runs with up to 1 GB RAM and 128 MB graphics memory.");
     $("hw-note").textContent = notes.join(" ");
     const changed = state.project && !sameHardware(x, { ...defaultHardware(), ...(state.project.hardware || {}) });
     $("hw-apply").hidden = !changed;
+    renderSettingsSummary();
+    if (state.project) $("project-sub").textContent = `${targetLabel(state.project.target)} · ${hwText(x)}`;
   }
 
   for (const f of HW_FIELDS) {
@@ -787,7 +1075,9 @@
   }
   $("hw-apply").onclick = async () => {
     if (!requireSignIn()) return;
-    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project.id, hardware: hw() });
+    $("settings").hidden = true;
+    userMsg(`Change the hardware to ${hwText(hw())}`);
+    await runBuild("/api/rebuild", { target: state.target, files: state.files, projectId: state.project.id, hardware: hw() }, "Rebuilding with the new hardware (no AI needed)…");
   };
 
   // ----------------------------------------------------------------- apps ---
@@ -802,12 +1092,12 @@
     const count = state.project ? state.config.apps.filter((a) => installed(a.id)).length : state.selectedApps.size;
     $("apps-count").textContent = sdk && count ? String(count) : "";
     $("apps-hint").textContent = !sdk
-      ? "Ready-made apps are for 32-bit and 64-bit desktops. Use “Make any app with AI” for this target."
-      : state.project ? "Adding or removing an app rebuilds your OS without using an AI build." : "Pick apps now and they're included in your first build.";
+      ? "Ready-made apps are for 32-bit and 64-bit desktops."
+      : state.project ? "Adding or removing one rebuilds your OS without an AI build." : "Picked apps are included in your first build.";
     $("custom-app").placeholder = state.target === "linux64" ? "A terminal to-do list app that saves to /home" : "A to-do list app with checkboxes and due dates";
     for (const a of state.config.apps) {
       const on = state.project ? installed(a.id) : state.selectedApps.has(a.id);
-      const btn = h("button", { className: `small ${on ? "added" : "primary"}`, textContent: on ? (state.project ? "Installed · Remove" : "✓ Added") : "Add", disabled: !sdk || state.building });
+      const btn = h("button", { className: `small ${on ? "added" : ""}`, textContent: on ? (state.project ? "Installed · Remove" : "✓ Added") : "Add", disabled: !sdk || state.building });
       btn.onclick = () => toggleApp(a, on);
       grid.append(h("div", { className: `app-card${on ? " added" : ""}` },
         h("div", { className: "app-top" },
@@ -830,25 +1120,19 @@
     const files = { ...state.files };
     if (on) delete files[appFile(app.id)];
     else Object.assign(files, (await api(`/api/apps/${app.id}`)).files);
-    log("system", `${on ? "Removing" : "Installing"} ${app.name} and rebuilding…`);
     state.files = files;
     renderFileList();
-    await runBuild("/api/rebuild", { target: state.target, files, projectId: state.project.id, hardware: hw() });
+    userMsg(`${on ? "Remove" : "Add"} the ${app.name} app`);
+    await runBuild("/api/rebuild", { target: state.target, files, projectId: state.project.id, hardware: hw() }, `${on ? "Removing" : "Installing"} ${app.name}…`);
   }
 
-  $("custom-app-btn").onclick = async () => {
+  $("custom-app-form").onsubmit = (e) => {
+    e.preventDefault();
     const idea = $("custom-app").value.trim();
     if (!idea) return toast("Describe the app first");
-    if (state.project) {
-      if (!requireSignIn()) return;
-      await runBuild("/api/build-os", { projectId: state.project.id, change: `Add a new app to this OS: ${idea}. Give it its own icon and window${state.target === "linux64" ? " (a program in src/ that the launcher can start)" : " (KC_APP)"}.`, hardware: hw() });
-      $("custom-app").value = "";
-    } else {
-      const p = $("prompt");
-      p.value = `${p.value.trim()}${p.value.trim() ? " " : ""}Include an app: ${idea}.`;
-      $("custom-app").value = "";
-      toast("Added to your OS description. Press Build OS when ready.");
-    }
+    $("custom-app").value = "";
+    showTab("display");
+    send(state.project ? `Add a new app: ${idea}` : `A desktop OS with this app: ${idea}`);
   };
 
   // ----------------------------------------------------------------- docs ---
@@ -861,13 +1145,19 @@
 
   // ----------------------------------------------------------------- init ---
   (async () => {
-    if (STATIC) document.body.classList.add("static");
-    state.config = await api("/api/config");
     if (STATIC) {
-      $("static-banner").hidden = false;
-      $("codespaces-link").href = state.config.codespaces || state.config.repo || "#";
+      document.body.classList.add("static");
+      $("server-block").hidden = false;
+      $("server-url").value = server;
     }
-    document.querySelectorAll('[data-sample="showcase"]').forEach((b) => (b.hidden = false));
+    try {
+      state.config = await api("/api/config");
+    } catch {
+      // A saved server that's gone (stopped codespace): fall back to the demo.
+      server = "";
+      state.config = await api("/api/config");
+      toast("Your KernelCraft server isn't reachable. Start it again and reconnect in ⚙ Settings.", 8000);
+    }
     state.hardware = defaultHardware();
     await refreshMe();
     renderHardware();

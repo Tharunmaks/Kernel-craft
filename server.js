@@ -284,6 +284,22 @@ async function sampleRoute(res, name) {
   res.end(image);
 }
 
+// The GitHub Pages app (an allowed origin) can't use our cookie, so it gets
+// the session token in the body and sends it back as a bearer header.
+function startSessionResponse(req, res, user) {
+  const token = auth.startSession(user);
+  const body = allowedOrigin(req) ? { ...account(user), token } : account(user);
+  return sendJSON(res, 200, body, { "Set-Cookie": auth.sessionCookie(token, req) });
+}
+
+// Origins allowed to call the API cross-origin: the project's GitHub Pages
+// site by default, or a comma-separated KC_ALLOWED_ORIGINS list.
+const ALLOWED_ORIGINS = new Set((process.env.KC_ALLOWED_ORIGINS || "https://tharunmaks.github.io").split(",").map((o) => o.trim()).filter(Boolean));
+function allowedOrigin(req) {
+  const origin = req.headers.origin;
+  return origin && ALLOWED_ORIGINS.has(origin) ? origin : null;
+}
+
 async function route(req, res, url) {
   const p = url.pathname;
   const m = (re) => p.match(re);
@@ -293,12 +309,12 @@ async function route(req, res, url) {
   if (method === "POST" && p === "/api/auth/signup") {
     let user;
     try { user = auth.signup(await readJSON(req)); } catch (err) { throw new HttpError(400, err.message); }
-    return sendJSON(res, 200, account(user), { "Set-Cookie": auth.sessionCookie(auth.startSession(user), req) });
+    return startSessionResponse(req, res, user);
   }
   if (method === "POST" && p === "/api/auth/login") {
     let user;
     try { user = auth.login(await readJSON(req)); } catch (err) { throw new HttpError(401, err.message); }
-    return sendJSON(res, 200, account(user), { "Set-Cookie": auth.sessionCookie(auth.startSession(user), req) });
+    return startSessionResponse(req, res, user);
   }
   if (method === "POST" && p === "/api/auth/logout") {
     auth.endSession(req);
@@ -388,6 +404,15 @@ async function route(req, res, url) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
+  const origin = url.pathname.startsWith("/api/") && allowedOrigin(req);
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
+  }
   try {
     await route(req, res, url);
   } catch (err) {

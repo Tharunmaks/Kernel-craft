@@ -12,7 +12,7 @@ prompt ─▶ architect ─▶ writers (parallel) ─▶ nasm / gcc / ld ─▶ 
 
 ## Run it on GitHub
 
-- **Web demo (GitHub Pages):** `.github/workflows/pages.yml` publishes a static version on every push to `main`: the emulator, the 16/32-bit samples, a showcase OS with every app, and `.img` upload. Accounts and AI builds need the server. One-time setup: **Settings → Pages → Source: GitHub Actions**. The demo is then at `https://<owner>.github.io/<repo>/`. Build it locally with `npm run build:static`.
+- **Web app on GitHub Pages:** the same chat-first builder, published as a static site (the `gh-pages` branch, or `.github/workflows/pages.yml` on every push to `main` with **Settings → Pages → Source: GitHub Actions**). Pages can't compile or test an OS, so the page builds through a KernelCraft server you connect: start one in Codespaces, set port 8086 to **Public** in the Ports tab, and paste its address in ⚙ Settings next to the send button. The server accepts API calls from `https://tharunmaks.github.io` by default; set `KC_ALLOWED_ORIGINS` (comma-separated) for other sites. Those clients sign in with a bearer token instead of the cookie. Without a server the page still boots a demo OS and your own `.img` files. Build it locally with `npm run build:static`.
 - **Full app (GitHub Codespaces):** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Tharunmaks/Kernel-craft?quickstart=1). The dev container installs NASM, GCC, QEMU and the Linux Forge base, then starts the server in dev-billing mode on port 8086. Add `ANTHROPIC_API_KEY` or `GROQ_API_KEY` as a Codespaces secret to enable AI builds.
 
 ## Quick start
