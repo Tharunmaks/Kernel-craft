@@ -11,6 +11,15 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+
+// Optional .env file (gitignored) for API keys and payment secrets, so they
+// never have to be written into the code. Real environment variables win.
+try {
+  for (const line of fs.readFileSync(path.join(__dirname, ".env"), "utf8").split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, "$2");
+  }
+} catch {}
 const { TARGETS, getTier } = require("./lib/tiers");
 const { createProvider } = require("./lib/providers");
 const { buildOS } = require("./lib/pipeline");

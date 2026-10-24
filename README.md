@@ -117,6 +117,10 @@ Plans and limits live in `lib/plans.js`. Payments use **Razorpay** (UPI, cards, 
 
 Accounts use scrypt password hashes and an HttpOnly session cookie. Data lives in `data/` (`KC_DATA_DIR`): `db.json` for users, sessions, payments and usage, and one directory per project for sources, images and screenshots. Swap `lib/store.js` for a real database before scaling past one server.
 
+## Keys and secrets
+
+Put API keys in a `.env` file next to `server.js` (copy `.env.example`). It is gitignored and loaded at startup. On Codespaces, use repository or user secrets instead. Never commit a key: this repository is public, anyone could use it, and providers revoke keys they find on GitHub.
+
 ## AI providers
 
 `lib/providers/` holds pluggable providers (`KC_PROVIDER=anthropic|groq|offline`). With no `KC_PROVIDER`, the server uses Claude when `ANTHROPIC_API_KEY` is set, otherwise Groq when `GROQ_API_KEY` is set, otherwise offline mode.

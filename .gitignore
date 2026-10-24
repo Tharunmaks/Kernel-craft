@@ -4,3 +4,4 @@ vendor/bios/*.bin
 vendor/linux-base/
 data/
 dist/
+.env
