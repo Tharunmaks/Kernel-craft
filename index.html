@@ -12,7 +12,7 @@
   <header class="topbar">
     <a class="brand" href="#/"><span class="logo">▣</span> KernelCraft</a>
     <nav class="nav">
-      <a href="#/studio" data-view="studio">Studio</a>
+      <a href="#/studio" data-view="studio">Build</a>
       <a href="#/projects" data-view="projects">My OSes</a>
       <a href="#/pricing" data-view="pricing">Pricing</a>
       <a href="#/docs" data-view="docs">Docs</a>
@@ -22,92 +22,94 @@
     </div>
   </header>
 
-  <div class="static-banner" id="static-banner" hidden>
-    <span>You're on the <b>GitHub Pages demo</b>: boot samples, try every app in the showcase OS, or upload your own .img. AI builds need the KernelCraft server.</span>
-    <a class="button small primary" id="codespaces-link" target="_blank" rel="noopener">Run the full app in Codespaces</a>
-  </div>
-
   <!-- ================================================================ HOME -->
-  <main class="view" id="view-home" hidden>
+  <main class="view home" id="view-home" hidden>
     <section class="hero">
-      <h1>Describe an operating system.<br><span class="accent">Boot it in seconds.</span></h1>
-      <p class="lead">KernelCraft's AI team plans, writes and compiles a real bootable OS from your words, tests it in a virtual machine with a vision model, fixes what's broken, and runs it right here in your browser.</p>
-      <div class="hero-actions">
-        <a class="button primary big" href="#/studio">Open the Studio</a>
-        <a class="button big" href="#/pricing">See plans</a>
-      </div>
+      <div class="hero-badge">✨ AI operating system builder</div>
+      <h1>What OS should we build today?</h1>
+      <p class="lead">Describe it in your own words. The AI writes the code, boots it in a test machine, fixes what's broken and runs it right here in your browser.</p>
+      <form class="hero-box" id="hero-form">
+        <textarea id="hero-prompt" rows="3" placeholder="A dark, glassy desktop OS called Nova with a dock, a notes app and a snake game…"></textarea>
+        <div class="hero-box-bar">
+          <span class="muted small-text">Press Enter to start · Shift+Enter for a new line</span>
+          <button class="primary send" type="submit" title="Build it">Build it <span aria-hidden="true">↑</span></button>
+        </div>
+      </form>
+      <div class="chips center-chips" id="hero-chips"></div>
     </section>
-    <section class="steps">
-      <div class="step"><b>1</b><h3>Describe</h3><p>"A Windows-style desktop with a file manager, notepad and a neon theme."</p></div>
-      <div class="step"><b>2</b><h3>Architect + writers</h3><p>An architect agent splits your OS into files; writer agents build them in parallel.</p></div>
-      <div class="step"><b>3</b><h3>Compile + boot</h3><p>NASM, GCC and LD produce a disk image that boots in a headless QEMU VM.</p></div>
-      <div class="step"><b>4</b><h3>Vision test</h3><p>A vision model checks the screen and sends bugs back for repair, up to 5 passes.</p></div>
-      <div class="step"><b>5</b><h3>Play + export</h3><p>Run it in the v86 emulator, edit the code, rebuild, and download the image.</p></div>
-    </section>
-    <section class="targets-showcase">
-      <div class="showcase"><h3>16-bit Real Mode</h3><p>Boot sectors, DOS-style shells and text UIs written in assembly.</p><span class="tag">Plus</span></div>
-      <div class="showcase"><h3>32-bit Protected Mode</h3><p>Graphical desktops on the KernelCraft SDK: windows, mouse, apps and a filesystem.</p><span class="tag">Pro</span></div>
-      <div class="showcase"><h3>64-bit Long Mode</h3><p>The same SDK in x86_64 long mode, built from scratch.</p><span class="tag">Max</span></div>
-      <div class="showcase"><h3>Linux Forge</h3><p>Start from a real 64-bit Linux kernel and let the AI build your distro on top.</p><span class="tag">Max</span></div>
+    <section class="how">
+      <div><b>1</b><h3>Say what you want</h3><p>Apps, look and feel, games, a name. Plain words, no setup.</p></div>
+      <div><b>2</b><h3>Watch the AI build it</h3><p>It plans, writes, compiles and boots your OS, then checks the screen and fixes bugs.</p></div>
+      <div><b>3</b><h3>Keep chatting to change it</h3><p>"Make it blue." "Add a calculator." Every message updates your OS.</p></div>
     </section>
   </main>
 
   <!-- ============================================================== STUDIO -->
   <main class="view studio" id="view-studio" hidden>
-    <section class="panel left">
-      <div class="project-head">
-        <div>
-          <div class="eyebrow" id="project-mode">New OS</div>
-          <div class="project-name" id="project-name">Untitled</div>
+    <section class="chat-pane">
+      <div class="chat-head">
+        <div class="chat-title">
+          <div class="project-name" id="project-name">New OS</div>
+          <div class="project-sub muted" id="project-sub"></div>
         </div>
-        <button id="new-project" class="small" title="Start a new OS">＋ New</button>
+        <button id="new-project" class="small" title="Start a new OS">＋ New OS</button>
       </div>
 
-      <label class="field-label" for="prompt" id="prompt-label">Describe your OS</label>
-      <textarea id="prompt" rows="6" placeholder="A 32-bit Windows-style OS called Nova with a taskbar, file explorer, notepad, a paint app and a neon blue theme"></textarea>
-      <div class="chips" id="idea-chips"></div>
+      <div class="chat" id="chat"></div>
 
-      <div id="target-block">
-        <div class="field-label">Build target</div>
-        <div class="targets" id="targets"></div>
-      </div>
-
-      <details class="hw-card" id="hw-card">
-        <summary><span class="hw-title">🖥 Hardware</span> <span class="hw-summary" id="hw-summary"></span></summary>
-        <div class="hw-grid">
-          <label>CPU cores<select id="hw-cpus"></select></label>
-          <label>CPU type<select id="hw-cpuModel"></select></label>
-          <label>RAM<select id="hw-ramMB"></select></label>
-          <label>Graphics memory<select id="hw-vramMB"></select></label>
-          <label class="wide">Screen resolution<select id="hw-resolution"></select></label>
+      <form class="composer" id="composer">
+        <div class="composer-box">
+          <textarea id="prompt" rows="1" placeholder="Describe the OS you want…"></textarea>
+          <div class="composer-bar">
+            <button type="button" class="pill" id="settings-btn" title="OS type and hardware">⚙ <span id="settings-summary">Auto</span></button>
+            <span class="spacer"></span>
+            <span class="usage" id="usage"></span>
+            <button class="primary send" id="build" type="submit" title="Send (Enter)">↑</button>
+          </div>
         </div>
-        <p class="hw-note muted" id="hw-note"></p>
-        <button id="hw-apply" class="small block" hidden>Apply hardware to this OS (rebuild, no AI)</button>
-      </details>
-
-      <button id="build" class="primary block">Build OS</button>
-      <div class="usage" id="usage"></div>
-
-      <div class="field-label log-label">Agent thought log <button id="clear-log" class="link">clear</button></div>
-      <div class="log" id="log"></div>
+        <div class="settings" id="settings" hidden>
+          <div class="settings-head"><b>Settings</b><button type="button" class="link" id="settings-close">Done</button></div>
+          <div id="target-block">
+            <div class="field-label">OS type</div>
+            <div class="targets" id="targets"></div>
+          </div>
+          <div class="field-label">Virtual hardware</div>
+          <div class="hw-grid">
+            <label>CPU cores<select id="hw-cpus"></select></label>
+            <label>CPU type<select id="hw-cpuModel"></select></label>
+            <label>RAM<select id="hw-ramMB"></select></label>
+            <label>Graphics memory<select id="hw-vramMB"></select></label>
+            <label class="wide">Screen resolution<select id="hw-resolution"></select></label>
+          </div>
+          <p class="hw-note muted" id="hw-note"></p>
+          <button type="button" id="hw-apply" class="small block" hidden>Apply hardware to this OS (rebuild, no AI)</button>
+          <div id="server-block" hidden>
+            <div class="field-label">Builder server</div>
+            <p class="muted small-text">This GitHub Pages site needs a KernelCraft server to build with AI. Start one in Codespaces, set port 8086 to <b>Public</b>, and paste its address here.</p>
+            <div class="row-inline">
+              <input id="server-url" placeholder="https://your-codespace-8086.app.github.dev">
+              <button type="button" class="small primary" id="server-save">Connect</button>
+            </div>
+          </div>
+        </div>
+      </form>
     </section>
 
-    <section class="panel center">
+    <section class="preview-pane">
       <div class="tabs">
-        <button class="tab active" data-tab="display">Display</button>
+        <button class="tab active" data-tab="display">Preview</button>
         <button class="tab" data-tab="code">Code</button>
         <button class="tab" data-tab="apps">Apps <span class="tab-count" id="apps-count"></span></button>
-        <button class="tab" data-tab="serial">Serial</button>
+        <button class="tab" data-tab="serial">Console</button>
         <div class="spacer"></div>
         <div class="toolbar">
-          <button id="lock-mouse" class="small" title="Capture the mouse for the guest (Esc to release)">🖱 Mouse</button>
-          <button id="cad" class="small" title="Send Ctrl+Alt+Del">Ctrl+Alt+Del</button>
-          <button id="restart" class="small" title="Reboot the emulator">⟲ Reboot</button>
-          <button id="shot" class="small" title="Save a screenshot">📷</button>
-          <button id="fullscreen" class="small" title="Fullscreen">⛶</button>
-          <label class="button small" title="Boot your own floppy image">⤒ .img<input type="file" id="upload" accept=".img,.bin,.ima" hidden></label>
+          <button id="lock-mouse" class="icon" title="Capture the mouse for the OS (Esc releases it)">🖱</button>
+          <button id="cad" class="icon" title="Send Ctrl+Alt+Del">⌨</button>
+          <button id="restart" class="icon" title="Restart the OS">⟲</button>
+          <button id="shot" class="icon" title="Save a screenshot">📷</button>
+          <button id="fullscreen" class="icon" title="Fullscreen">⛶</button>
           <div class="menu-wrap">
-            <button id="export" class="primary small" disabled>Export ▾</button>
+            <button id="export" class="small" disabled>Download ▾</button>
             <div class="menu" id="export-menu" hidden></div>
           </div>
         </div>
@@ -116,24 +118,25 @@
       <div class="tab-body" id="tab-display">
         <div class="screen-frame" id="screen-frame">
           <div id="screen_container"><div class="text-layer"></div><canvas></canvas></div>
-          <img id="preview" alt="Screenshot from the verification VM" hidden>
+          <img id="preview" alt="Screenshot from the test machine" hidden>
           <div class="overlay" id="overlay">
-            <h3>No OS running</h3>
-            <p class="muted">Describe an OS and press <b>Build OS</b>, or boot a sample.</p>
-            <div class="row">
-              <button class="small" data-sample="real16">Boot 16-bit sample</button>
-              <button class="small" data-sample="prot32">Boot 32-bit desktop sample</button>
-              <button class="small primary" data-sample="showcase" hidden>Boot the showcase OS (all apps)</button>
+            <div class="empty-screen">
+              <div class="empty-icon">▣</div>
+              <h3>Your OS will appear here</h3>
+              <p class="muted">Tell the AI what to build in the chat. It boots here as soon as it's ready.</p>
             </div>
           </div>
         </div>
-        <div class="metrics">
-          <div><span>CPU</span><b id="m-cpu">idle</b></div>
-          <div><span>MIPS</span><b id="m-mips">–</b></div>
-          <div><span>FPS</span><b id="m-fps">–</b></div>
-          <div><span>Video</span><b id="m-video">–</b></div>
-          <div><span>Memory</span><b id="m-mem">–</b></div>
-          <div><span>Image</span><b id="m-image">–</b></div>
+        <div class="statusbar">
+          <span><i class="dot" id="m-dot"></i><b id="m-cpu">idle</b></span>
+          <span>MIPS <b id="m-mips">–</b></span>
+          <span>FPS <b id="m-fps">–</b></span>
+          <span>Video <b id="m-video">–</b></span>
+          <span>Memory <b id="m-mem">–</b></span>
+          <span>Image <b id="m-image">–</b></span>
+          <span class="spacer"></span>
+          <label class="link" title="Boot a floppy image from your computer">Open .img<input type="file" id="upload" accept=".img,.bin,.ima" hidden></label>
+          <button class="link" id="demo-link" title="Boot a ready-made demo OS">Try a demo OS</button>
         </div>
       </div>
 
@@ -147,35 +150,30 @@
             <span id="editor-name">No file</span>
             <span class="spacer"></span>
             <button id="revert" class="small">Revert</button>
-            <button id="rebuild" class="primary small">Rebuild (no AI)</button>
+            <button id="rebuild" class="primary small">Run my edits</button>
           </div>
-          <textarea id="editor" spellcheck="false" placeholder="Build or open an OS to see its source code."></textarea>
+          <textarea id="editor" spellcheck="false" placeholder="The AI's code shows up here after the first build. Edit it and press Run my edits."></textarea>
         </div>
       </div>
 
       <div class="tab-body apps" id="tab-apps" hidden>
         <div class="custom-app">
           <div>
-            <b>Make any app with AI</b>
-            <p class="muted">Describe it and the AI writes it into your OS: a to-do list, a music player, a chat app, a weather widget…</p>
+            <b>Ask the AI for any app</b>
+            <p class="muted">A to-do list, a music player, a calculator, a chat app, a weather widget… it writes the app into your OS.</p>
           </div>
-          <div class="row">
+          <form class="row-inline" id="custom-app-form">
             <input id="custom-app" placeholder="A to-do list app with checkboxes and due dates">
-            <button id="custom-app-btn" class="primary small">Create with AI</button>
-          </div>
+            <button id="custom-app-btn" class="primary small">Ask AI</button>
+          </form>
         </div>
-        <div class="apps-head"><span class="field-label">App store</span><span class="muted" id="apps-hint"></span></div>
+        <div class="apps-head"><span class="field-label">Or add a ready-made app instantly</span><span class="muted" id="apps-hint"></span></div>
         <div class="app-grid" id="app-grid"></div>
       </div>
 
       <div class="tab-body" id="tab-serial" hidden>
         <pre class="serial" id="serial"></pre>
       </div>
-    </section>
-
-    <section class="panel bottom">
-      <div class="field-label">Verification passes <span class="muted" id="pass-summary"></span></div>
-      <div class="gallery" id="gallery"><p class="muted">Screenshots from each headless VM boot appear here.</p></div>
     </section>
   </main>
 
@@ -203,7 +201,7 @@
           <li>Name your OS and its look: <i>"called Nova, glassy dark theme with cyan accents"</i>.</li>
           <li>List the apps you want: file explorer, notepad, paint, games, settings, a clock widget.</li>
           <li>Describe behaviour: <i>"the terminal supports pipes"</i>, <i>"double-click files to open them"</i>.</li>
-          <li>Iterate: open a saved OS and use <b>Change this OS</b> to add features one at a time.</li>
+          <li>Iterate: keep chatting. Every message changes your current OS, one feature at a time.</li>
         </ul>
         <h3>Targets</h3>
         <ul>
@@ -212,12 +210,12 @@
           <li><b>64-bit</b>: the same SDK in long mode. Verified in QEMU; export to run locally (the browser emulator is 32-bit only).</li>
           <li><b>Linux Forge</b>: a real Linux kernel plus BusyBox; the AI writes init scripts, config and C programs. Export a .tar.gz with a QEMU run script.</li>
         </ul>
-        <h3>In the Studio</h3>
+        <h3>In the builder</h3>
         <ul>
-          <li><b>Code</b> tab: edit any file and press <b>Rebuild</b> to compile without AI.</li>
-          <li><b>Serial</b> tab: everything the OS logs with <code>kc_log()</code> (COM1).</li>
-          <li><b>Apps</b> tab: add a browser, Paint, games, a clock, a calendar or a piano with one click, or describe any app for the AI to write.</li>
-          <li><b>Hardware</b> panel: CPU cores and type, RAM, graphics memory and screen resolution up to 1920×1080.</li>
+          <li><b>Code</b> tab: edit any file and press <b>Run my edits</b> to compile without AI.</li>
+          <li><b>Console</b> tab: everything the OS logs with <code>kc_log()</code> (COM1).</li>
+          <li><b>Apps</b> tab: describe any app for the AI to write, or add a ready-made browser, Paint, games, clock, calendar or piano.</li>
+          <li><b>⚙ Settings</b> (next to the send button): OS type, CPU cores, RAM up to 24 GB, graphics memory up to 6 GB, and screen resolution.</li>
           <li>🖱 captures the mouse for the guest; Esc releases it.</li>
           <li>Inside SDK desktops: double-click icons, drag windows by the title bar, F1 opens the start menu, Alt+Tab cycles windows.</li>
         </ul>
