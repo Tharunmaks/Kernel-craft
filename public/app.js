@@ -30,8 +30,21 @@
     linux64: ["A Linux distro for students with a menu-driven study timer and notes app", "A retro gaming Linux that boots into a launcher of terminal games", "A server dashboard distro that shows live CPU and memory graphs"],
   };
 
+  // The GitHub Pages build sets window.KC_STATIC: no server, so the app runs
+  // the emulator with prebuilt images and explains that builds need the server.
+  const STATIC = Boolean(window.KC_STATIC);
+  const SERVER_NEEDED = "This GitHub Pages demo runs the emulator only. Accounts and AI builds need the KernelCraft server: use “Run the full app in Codespaces”.";
+
   // ------------------------------------------------------------------ api ---
+  async function staticApi(path) {
+    if (path === "/api/config") return (await fetch("static.json")).json();
+    if (path === "/api/me") return { user: null };
+    if (path === "/api/sdk") return { files: { "kc.h": await (await fetch("sdk/kc.h")).text() } };
+    throw new Error(SERVER_NEEDED);
+  }
+
   async function api(path, { method = "GET", body } = {}) {
+    if (STATIC) return staticApi(path);
     const res = await fetch(path, {
       method,
       headers: body ? { "Content-Type": "application/json" } : {},
@@ -69,7 +82,9 @@
   function renderAccount() {
     const box = $("account");
     box.innerHTML = "";
-    if (!state.me?.user) {
+    if (STATIC) {
+      box.append(h("a", { className: "button small", href: state.config?.repo || "#", target: "_blank", rel: "noopener", textContent: "GitHub" }));
+    } else if (!state.me?.user) {
       box.append(h("button", { className: "primary small", textContent: "Sign in", onclick: () => openAuth("login") }));
     } else {
       box.append(
@@ -130,6 +145,7 @@
   document.querySelectorAll("[data-close]").forEach((b) => (b.onclick = () => b.closest("dialog").close()));
 
   function requireSignIn(then) {
+    if (STATIC) { toast(SERVER_NEEDED, 7000); return false; }
     if (state.me?.user) return true;
     openAuth("signup", then);
     return false;
@@ -217,6 +233,7 @@
   async function renderProjects() {
     const grid = $("project-grid");
     grid.innerHTML = "";
+    if (STATIC) { grid.append(h("div", { className: "empty", textContent: SERVER_NEEDED })); return; }
     if (!state.me?.user) {
       grid.append(h("div", { className: "empty" }, "Sign in to see your saved operating systems. ", h("button", { className: "primary small", textContent: "Sign in", onclick: () => openAuth("login", renderProjects) })));
       return;
@@ -342,7 +359,7 @@
 
   function renderUsage() {
     const u = state.me?.usage;
-    $("usage").textContent = !state.me?.user ? "Sign in to build. Free accounts can boot samples and upload images." :
+    $("usage").textContent = STATIC ? "AI builds need the KernelCraft server (see the banner above)." : !state.me?.user ? "Sign in to build. Free accounts can boot samples and upload images." :
       u.aiLimit ? `${Math.max(0, u.aiLimit - u.aiToday)} of ${u.aiLimit} AI builds left today · ${state.me.plan.name} plan` : "Your Free plan includes the emulator and samples. Upgrade to build with AI.";
   }
 
@@ -379,18 +396,18 @@
     $("m-video").textContent = "–";
     serialWrite(`\n--- booting ${label} ---\n`);
     emulator = new V86({
-      wasm_path: "/vendor/v86.wasm",
+      wasm_path: "vendor/v86.wasm",
       memory_size: browserRamMB() * 1024 * 1024,
-      vga_memory_size: (hw().vramMB || 16) * 1024 * 1024,
+      vga_memory_size: browserVramMB() * 1024 * 1024,
       screen: { container: $("screen_container"), use_graphical_text: true },
-      bios: { url: "/vendor/bios/seabios.bin" },
-      vga_bios: { url: "/vendor/bios/vgabios.bin" },
+      bios: { url: "vendor/bios/seabios.bin" },
+      vga_bios: { url: "vendor/bios/vgabios.bin" },
       fda: { buffer: bytes.slice().buffer },
       autostart: true,
     });
     emulator.add_listener("screen-set-size", ([w, hgt, bpp]) => ($("m-video").textContent = bpp ? `${w}×${hgt}×${bpp}` : `${w}×${hgt} text`));
     emulator.add_listener("serial0-output-byte", (b) => serialWrite(String.fromCharCode(b)));
-    $("m-mem").textContent = `${browserRamMB()} MB + ${hw().vramMB} MB VGA`;
+    $("m-mem").textContent = `${mbText(browserRamMB())} + ${mbText(browserVramMB())} VGA`;
   }
 
   function showPreview(src, message) {
@@ -452,8 +469,10 @@
 
   async function bootSample(target) {
     try {
-      log("system", `Booting the ${target === "real16" ? "16-bit" : "32-bit desktop"} sample...`);
-      const res = await fetch(`/api/sample/${target}.img`);
+      log("system", `Booting the ${target === "real16" ? "16-bit" : target === "showcase" ? "showcase (all apps, 1024×768)" : "32-bit desktop"} sample...`);
+      // The showcase image is built for 1024x768 with 256 MB RAM and 16 MB VRAM.
+      if (target === "showcase") { state.hardware = { ...defaultHardware(), ...(state.config.showcaseHardware || {}) }; renderHardware(); }
+      const res = await fetch(STATIC ? `samples/${target}.img` : `/api/sample/${target}.img`);
       if (!res.ok) throw new Error("Could not build the sample");
       const bytes = new Uint8Array(await res.arrayBuffer());
       setImage(bytes, `kernelcraft-${target}-sample.img`, true);
@@ -715,13 +734,15 @@
   const hw = () => state.hardware || defaultHardware();
   // v86 runs inside the browser tab, so its RAM is capped to keep tabs healthy.
   const browserRamMB = () => Math.min(hw().ramMB || 64, 1024);
+  const browserVramMB = () => Math.min(hw().vramMB || 16, 128);
+  const mbText = (v) => (v >= 1024 ? `${v / 1024} GB` : `${v} MB`);
   const sameHardware = (a, b) => HW_FIELDS.every((f) => String(a?.[f]) === String(b?.[f]));
 
   function hwText(x) {
     const model = x.cpuModel === "modern" ? "modern" : "basic";
     return state.target === "real16"
-      ? `${x.cpus} core · ${x.ramMB} MB RAM`
-      : `${x.cpus} core${x.cpus > 1 ? "s" : ""} ${model} · ${x.ramMB} MB · ${x.resolution.replace("x", "×")} · ${x.vramMB} MB VRAM`;
+      ? `${x.cpus} core · ${mbText(x.ramMB)} RAM`
+      : `${x.cpus} core${x.cpus > 1 ? "s" : ""} ${model} · ${mbText(x.ramMB)} · ${x.resolution.replace("x", "×")} · ${mbText(x.vramMB)} VRAM`;
   }
 
   function renderHardware() {
@@ -738,7 +759,7 @@
     fill("cpus", o.cpus, (v) => `${v} core${v > 1 ? "s" : ""}`);
     fill("cpuModel", Object.keys(o.cpuModels), (v) => o.cpuModels[v]);
     fill("ramMB", o.ramMB, (v) => (v >= 1024 ? `${v / 1024} GB` : `${v} MB`));
-    fill("vramMB", o.vramMB, (v) => `${v} MB`);
+    fill("vramMB", o.vramMB, mbText);
     fill("resolution", linux ? o.linuxResolutions : o.resolutions, (v) => v.replace("x", " × "));
     $("hw-resolution").disabled = $("hw-vramMB").disabled = state.target === "real16";
     $("hw-summary").textContent = hwText(x);
@@ -747,8 +768,11 @@
     if (state.target === "real16") notes.push("16-bit OSes choose their own BIOS video mode, so resolution and graphics memory don't apply.");
     else if (w * hgt * 4 > x.vramMB * 1048576) notes.push(`${x.resolution} needs more graphics memory; it will be raised automatically.`);
     if (x.cpus > 1 && !linux) notes.push("Extra cores show up in the OS; the SDK schedules on the first core (ask the AI to add SMP).");
-    if (x.ramMB > 1024 && !linux && state.target !== "long64") notes.push("The in-browser emulator uses up to 1 GB; the test VM gets the full amount.");
-    if (state.target === "long64" || linux) notes.push("These settings apply to the test VM and your exported run script.");
+    const lim = o.limits;
+    if (x.ramMB > lim.vmRamMB) notes.push(`The test VM gets ${mbText(lim.vmRamMB)}; the exported run-qemu.sh uses the full ${mbText(x.ramMB)}.`);
+    if (!linux && x.ramMB > lim.sdkRamMB) notes.push(`SDK kernels use up to ${mbText(lim.sdkRamMB)} of RAM (Linux Forge uses all of it).`);
+    if (x.vramMB > lim.vgaVramMB) notes.push(`The emulated graphics card holds up to ${mbText(lim.vgaVramMB)}.`);
+    if (!linux && state.target !== "long64" && (x.ramMB > 1024 || x.vramMB > 128)) notes.push("In this browser tab the emulator runs with up to 1 GB RAM and 128 MB graphics memory.");
     $("hw-note").textContent = notes.join(" ");
     const changed = state.project && !sameHardware(x, { ...defaultHardware(), ...(state.project.hardware || {}) });
     $("hw-apply").hidden = !changed;
@@ -837,7 +861,13 @@
 
   // ----------------------------------------------------------------- init ---
   (async () => {
+    if (STATIC) document.body.classList.add("static");
     state.config = await api("/api/config");
+    if (STATIC) {
+      $("static-banner").hidden = false;
+      $("codespaces-link").href = state.config.codespaces || state.config.repo || "#";
+    }
+    document.querySelectorAll('[data-sample="showcase"]').forEach((b) => (b.hidden = false));
     state.hardware = defaultHardware();
     await refreshMe();
     renderHardware();

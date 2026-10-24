@@ -6,7 +6,7 @@
   <title>KernelCraft</title>
   <meta name="description" content="Describe an operating system in plain English. KernelCraft's AI builds it, tests it in a VM, and boots it in your browser.">
   <link rel="stylesheet" href="styles.css">
-  <script src="/vendor/libv86.js" defer></script>
+  <script src="vendor/libv86.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -21,6 +21,11 @@
       <button id="signin-btn" class="primary small">Sign in</button>
     </div>
   </header>
+
+  <div class="static-banner" id="static-banner" hidden>
+    <span>You're on the <b>GitHub Pages demo</b>: boot samples, try every app in the showcase OS, or upload your own .img. AI builds need the KernelCraft server.</span>
+    <a class="button small primary" id="codespaces-link" target="_blank" rel="noopener">Run the full app in Codespaces</a>
+  </div>
 
   <!-- ================================================================ HOME -->
   <main class="view" id="view-home" hidden>
@@ -118,6 +123,7 @@
             <div class="row">
               <button class="small" data-sample="real16">Boot 16-bit sample</button>
               <button class="small" data-sample="prot32">Boot 32-bit desktop sample</button>
+              <button class="small primary" data-sample="showcase" hidden>Boot the showcase OS (all apps)</button>
             </div>
           </div>
         </div>

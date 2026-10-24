@@ -177,3 +177,23 @@ test("apps are only offered for SDK targets", () => {
   assert.throws(() => apps.filesFor(["paint"], getTier("real16")), /32-bit or 64-bit/);
   assert.throws(() => apps.filesFor(["../../etc/passwd"], getTier("prot32")), /Unknown app/);
 });
+
+test("big RAM and graphics memory: capped for the test VM, full in exports", () => {
+  const hardware = require("../lib/hardware");
+  const tier = getTier("long64");
+  const { hw } = hardware.normalize({ ramMB: 24576, vramMB: 6144, resolution: "1920x1080", cpus: 8 }, tier);
+  assert.strictEqual(hw.ramMB, 24576);
+  assert.strictEqual(hw.vramMB, 6144);
+  assert.match(hardware.qemuArgs(hw, tier).join(" "), /-m 24576 .*vgamem_mb=512/);
+  assert.match(hardware.qemuArgs(hw, tier, { test: true }).join(" "), /-m 4096 /);
+  const notes = hardware.limitNotes(hw, tier).join(" ");
+  assert.match(notes, /test VM uses 4 GB/);
+  assert.match(notes, /up to 512 MB/);
+});
+
+test("samples include the showcase OS with every app", { timeout: 60000 }, async () => {
+  const { buildSample } = require("../lib/samples");
+  const image = await buildSample("showcase");
+  assert.strictEqual(image.length, 1474560);
+  await assert.rejects(buildSample("../x"), /Unknown sample/);
+});

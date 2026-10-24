@@ -3,3 +3,4 @@ vendor/bios/*.bin
 *.img
 vendor/linux-base/
 data/
+dist/

@@ -14,13 +14,14 @@ const path = require("path");
 const { TARGETS, getTier } = require("./lib/tiers");
 const { createProvider } = require("./lib/providers");
 const { buildOS } = require("./lib/pipeline");
-const { buildArtifacts, makeWorkDir, readTemplate } = require("./lib/toolchain");
+const { readTemplate } = require("./lib/toolchain");
 const { planFor, planForTarget, publicPlans } = require("./lib/plans");
 const store = require("./lib/store");
 const auth = require("./lib/auth");
 const billing = require("./lib/billing");
 const hardware = require("./lib/hardware");
 const apps = require("./lib/apps");
+const { SAMPLES, buildSample } = require("./lib/samples");
 
 const PORT = Number(process.env.PORT) || 8086;
 const MAX_CONCURRENT_BUILDS = Number(process.env.KC_MAX_BUILDS) || 2;
@@ -266,20 +267,11 @@ async function rebuildRoute(req, res) {
 }
 
 const sampleCache = new Map();
-async function sampleRoute(res, target) {
-  const tier = getTier(target);
-  if (tier.builder !== "floppy") throw new HttpError(400, "Samples are floppy images");
-  if (!sampleCache.has(tier.id)) {
-    const workDir = await makeWorkDir();
-    try {
-      const built = await withBuildSlot(async () => buildArtifacts(await readTemplate(tier), tier, workDir));
-      sampleCache.set(tier.id, built.artifacts["floppy.img"]);
-    } finally {
-      fs.rm(workDir, { recursive: true, force: true }, () => {});
-    }
-  }
-  const image = sampleCache.get(tier.id);
-  res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="kernelcraft-${tier.id}-sample.img"`, "Content-Length": image.length });
+async function sampleRoute(res, name) {
+  if (!SAMPLES.includes(name)) throw new HttpError(404, "Unknown sample");
+  if (!sampleCache.has(name)) sampleCache.set(name, await withBuildSlot(() => buildSample(name)));
+  const image = sampleCache.get(name);
+  res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="kernelcraft-${name}-sample.img"`, "Content-Length": image.length });
   res.end(image);
 }
 
@@ -317,6 +309,7 @@ async function route(req, res, url) {
       targets: Object.values(TARGETS).map(({ id, label, browserBootable, builder }) => ({ id, label, browserBootable, builder, plan: planForTarget(id).id })),
       hardware: hardware.options(),
       apps: apps.list(),
+      showcaseHardware: apps.SHOWCASE_HARDWARE,
     });
   }
   if (method === "GET" && m(/^\/api\/apps\/([a-z0-9]+)$/)) {

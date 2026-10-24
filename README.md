@@ -10,6 +10,11 @@ prompt ─▶ architect ─▶ writers (parallel) ─▶ nasm / gcc / ld ─▶ 
         "Change this OS"                                       v86 in the browser / export
 ```
 
+## Run it on GitHub
+
+- **Web demo (GitHub Pages):** `.github/workflows/pages.yml` publishes a static version on every push to `main`: the emulator, the 16/32-bit samples, a showcase OS with every app, and `.img` upload. Accounts and AI builds need the server. One-time setup: **Settings → Pages → Source: GitHub Actions**. The demo is then at `https://<owner>.github.io/<repo>/`. Build it locally with `npm run build:static`.
+- **Full app (GitHub Codespaces):** [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Tharunmaks/Kernel-craft?quickstart=1). The dev container installs NASM, GCC, QEMU and the Linux Forge base, then starts the server in dev-billing mode on port 8086. Add `ANTHROPIC_API_KEY` as a Codespaces secret to enable AI builds.
+
 ## Quick start
 
 ```bash
@@ -50,14 +55,19 @@ It can also rewrite any SDK file. Memory map: font at 0x6000, kernel at 0x10000 
 
 ## Virtual hardware
 
-The Studio's **Hardware** panel picks the machine each OS is built for: CPU cores (1-8), CPU type (basic QEMU CPU or "modern" with every emulated feature), RAM (32 MB-2 GB), graphics memory (8-64 MB) and screen resolution (640x480 up to 1920x1080). Settings are saved with the project (`lib/hardware.js`) and applied to:
+The Studio's **Hardware** panel picks the machine each OS is built for: CPU cores (1-8), CPU type (basic QEMU CPU or "modern" with every emulated feature), RAM (32 MB-24 GB), graphics memory (8 MB-6 GB) and screen resolution (640x480 up to 1920x1080). Settings are saved with the project (`lib/hardware.js`) and applied to:
 
 - **The test VM**: `-m`, `-smp`, `-cpu`, `-device VGA,vgamem_mb=…`.
 - **The kernel**: SDK targets get an engine-generated `kc_config.c` (`kc_hw`), so `gfx_init` uses the chosen resolution. Monitor and Settings show the CPU brand and core count (CPUID), RAM, graphics memory and resolution.
 - **The browser emulator**: v86 gets the same RAM (capped at 1 GB in the browser tab) and graphics memory.
 - **Linux Forge**: kernel `vga=` mode, console size, and the exported `run-qemu.sh`.
 
-The SDK runs on the boot CPU only. Extra cores are visible to the OS, and the AI can be asked to add SMP. Linux uses all cores.
+Limits worth knowing:
+- The verification VM on the build server gets at most `KC_VM_MAX_RAM_MB` (default 4096). The exported `run-qemu.sh` uses the full configured amount.
+- QEMU's emulated VGA card holds at most 512 MB of video memory.
+- SDK kernels use up to 3 GB of RAM; Linux Forge uses all of it.
+- The in-browser emulator runs with up to 1 GB RAM and 128 MB graphics memory.
+- The SDK runs on the boot CPU only. Extra cores are visible to the OS, and the AI can be asked to add SMP. Linux uses all cores.
 
 ## App store
 
