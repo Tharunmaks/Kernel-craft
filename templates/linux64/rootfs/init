@@ -1,0 +1,27 @@
+#!/bin/sh
+# KernelCraft Linux Forge: PID 1. Mounts the virtual filesystems, runs the
+# startup script, then keeps the main app (or a shell) alive on tty1.
+export PATH=/usr/bin:/bin:/sbin:/usr/sbin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+mkdir -p /dev/pts /tmp /run
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /tmp
+hostname -F /etc/hostname 2>/dev/null
+
+# Size the text console to the framebuffer (the resolution comes from the
+# Studio's Hardware panel); fbcon takes over lazily and can keep 80x25.
+if [ -r /sys/class/graphics/fb0/virtual_size ]; then
+    IFS=, read FB_W FB_H < /sys/class/graphics/fb0/virtual_size
+    stty -F /dev/tty1 cols $((FB_W / 8)) rows $((FB_H / 16)) 2>/dev/null
+fi
+
+[ -x /etc/kc/rc ] && /etc/kc/rc
+
+while true; do
+    if [ -x /usr/bin/kcpanel ]; then
+        setsid cttyhack /usr/bin/kcpanel
+    fi
+    setsid cttyhack /bin/sh -l
+done

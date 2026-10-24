@@ -1,13 +1,15 @@
 {
   "name": "kernelcraft",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI OS foundry prototype: prompt -> NASM/C kernel -> floppy image -> headless QEMU + vision critic -> v86 in the browser",
   "private": true,
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js",
-    "postinstall": "node scripts/fetch-bios.js"
+    "postinstall": "node scripts/fetch-bios.js",
+    "setup:linux": "sh scripts/setup-linux-base.sh",
+    "build:static": "node scripts/build-static.js dist"
   },
   "engines": {
     "node": ">=20"

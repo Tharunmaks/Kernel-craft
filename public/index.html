@@ -4,89 +4,284 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KernelCraft</title>
+  <meta name="description" content="Describe an operating system in plain English. KernelCraft's AI builds it, tests it in a VM, and boots it in your browser.">
   <link rel="stylesheet" href="styles.css">
-  <script src="/vendor/libv86.js"></script>
+  <script src="vendor/libv86.js" defer></script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="logo">▣</span> KernelCraft <span class="tagline">AI OS foundry</span></div>
-    <div class="provider" id="provider">connecting…</div>
+    <a class="brand" href="#/"><span class="logo">▣</span> KernelCraft</a>
+    <nav class="nav">
+      <a href="#/studio" data-view="studio">Build</a>
+      <a href="#/projects" data-view="projects">My OSes</a>
+      <a href="#/pricing" data-view="pricing">Pricing</a>
+      <a href="#/docs" data-view="docs">Docs</a>
+    </nav>
+    <div class="account" id="account">
+      <button id="signin-btn" class="primary small">Sign in</button>
+    </div>
   </header>
 
-  <main class="ide">
-    <!-- Left: prompt, tier, agent log -->
-    <section class="panel left">
-      <h2>Describe your OS</h2>
-      <textarea id="prompt" rows="6" placeholder="Make a 32-bit retro OS with a file explorer and neon blue theme">Make a 32-bit retro OS called NeonOS with a taskbar, a terminal window and a neon blue theme</textarea>
-
-      <h2>Target tier</h2>
-      <div class="tiers" id="tiers">
-        <label class="tier"><input type="radio" name="tier" value="real16"><span><b>16-bit Real Mode</b><small>Free · bootloaders, text shells</small></span></label>
-        <label class="tier"><input type="radio" name="tier" value="prot32" checked><span><b>32-bit Protected Mode</b><small>Pro $20/mo · VGA GUIs, C kernels</small></span></label>
-        <label class="tier"><input type="radio" name="tier" value="long64"><span><b>64-bit Long Mode</b><small>Enterprise $99+/mo · QEMU-verified</small></span></label>
-      </div>
-
-      <div class="actions">
-        <button id="build" class="primary">Build OS</button>
-        <button id="sample" title="Boot the stock template for this tier, no AI">Boot sample</button>
-      </div>
-
-      <h2>Agent thought log <button id="clear-log" class="link">clear</button></h2>
-      <div class="log" id="log"></div>
-    </section>
-
-    <!-- Center: emulator -->
-    <section class="panel center">
-      <div class="tabs">
-        <button class="tab active" data-tab="display">Display</button>
-        <button class="tab" data-tab="source">Source</button>
-        <div class="spacer"></div>
-        <button id="restart" title="Reboot the emulator">⟲ Reboot</button>
-        <button id="export" class="primary" disabled>Export .IMG</button>
-      </div>
-
-      <div class="tab-body" id="tab-display">
-        <div class="screen-frame">
-          <div id="screen_container">
-            <div class="text-layer"></div>
-            <canvas></canvas>
-          </div>
-          <img id="preview" alt="" hidden>
-          <div class="overlay" id="overlay">
-            <p>No OS loaded.</p>
-            <p class="muted">Describe an OS and press <b>Build OS</b>, or boot a sample.</p>
-          </div>
+  <!-- ================================================================ HOME -->
+  <main class="view home" id="view-home" hidden>
+    <section class="hero">
+      <div class="hero-badge">✨ AI operating system builder</div>
+      <h1>What OS should we build today?</h1>
+      <p class="lead">Describe it in your own words. The AI writes the code, boots it in a test machine, fixes what's broken and runs it right here in your browser.</p>
+      <form class="hero-box" id="hero-form">
+        <textarea id="hero-prompt" rows="3" placeholder="A dark, glassy desktop OS called Nova with a dock, a notes app and a snake game…"></textarea>
+        <div class="hero-box-bar">
+          <span class="muted small-text">Press Enter to start · Shift+Enter for a new line</span>
+          <button class="primary send" type="submit" title="Build it">Build it <span aria-hidden="true">↑</span></button>
         </div>
-        <div class="metrics">
-          <div><span>CPU</span><b id="m-cpu">idle</b></div>
-          <div><span>MIPS</span><b id="m-mips">–</b></div>
-          <div><span>FPS</span><b id="m-fps">–</b></div>
-          <div><span>Video</span><b id="m-video">–</b></div>
-          <div><span>Memory</span><b id="m-mem">–</b></div>
-          <div><span>Image</span><b id="m-image">–</b></div>
-        </div>
-        <p class="hint">Click the screen, then type to send keys to the guest.</p>
-      </div>
-
-      <div class="tab-body" id="tab-source" hidden>
-        <div class="file-tabs" id="file-tabs"></div>
-        <pre class="source" id="source">Build an OS to see its generated source.</pre>
-      </div>
+      </form>
+      <div class="chips center-chips" id="hero-chips"></div>
     </section>
-
-    <!-- Bottom: pass gallery -->
-    <section class="panel bottom">
-      <h2>Verification passes <span class="muted" id="pass-summary"></span></h2>
-      <div class="gallery" id="gallery"><p class="muted">Screenshots from each headless QEMU boot appear here.</p></div>
+    <section class="how">
+      <div><b>1</b><h3>Say what you want</h3><p>Apps, look and feel, games, a name. Plain words, no setup.</p></div>
+      <div><b>2</b><h3>Watch the AI build it</h3><p>It plans, writes, compiles and boots your OS, then checks the screen and fixes bugs.</p></div>
+      <div><b>3</b><h3>Keep chatting to change it</h3><p>"Make it blue." "Add a calculator." Every message updates your OS.</p></div>
     </section>
   </main>
 
+  <!-- ============================================================== STUDIO -->
+  <main class="view studio" id="view-studio" hidden>
+    <section class="chat-pane">
+      <div class="chat-head">
+        <div class="chat-title">
+          <div class="project-name" id="project-name">New OS</div>
+          <div class="project-sub muted" id="project-sub"></div>
+        </div>
+        <button id="new-project" class="small" title="Start a new OS">＋ New OS</button>
+      </div>
+
+      <div class="chat" id="chat"></div>
+
+      <form class="composer" id="composer">
+        <div class="composer-box">
+          <textarea id="prompt" rows="1" placeholder="Describe the OS you want…"></textarea>
+          <div class="composer-bar">
+            <button type="button" class="pill" id="settings-btn" title="OS type and hardware">⚙ <span id="settings-summary">Auto</span></button>
+            <span class="spacer"></span>
+            <span class="usage" id="usage"></span>
+            <button class="primary send" id="build" type="submit" title="Send (Enter)">↑</button>
+          </div>
+        </div>
+        <div class="settings" id="settings" hidden>
+          <div class="settings-head"><b>Settings</b><button type="button" class="link" id="settings-close">Done</button></div>
+          <div id="target-block">
+            <div class="field-label">OS type</div>
+            <div class="targets" id="targets"></div>
+          </div>
+          <div class="field-label">Virtual hardware</div>
+          <div class="hw-grid">
+            <label>CPU cores<select id="hw-cpus"></select></label>
+            <label>CPU type<select id="hw-cpuModel"></select></label>
+            <label>RAM<select id="hw-ramMB"></select></label>
+            <label>Graphics memory<select id="hw-vramMB"></select></label>
+            <label class="wide">Screen resolution<select id="hw-resolution"></select></label>
+          </div>
+          <p class="hw-note muted" id="hw-note"></p>
+          <button type="button" id="hw-apply" class="small block" hidden>Apply hardware to this OS (rebuild, no AI)</button>
+          <div id="server-block" hidden>
+            <div class="field-label">Builder server</div>
+            <p class="muted small-text">This GitHub Pages site needs a KernelCraft server to build with AI. Start one in Codespaces, set port 8086 to <b>Public</b>, and paste its address here.</p>
+            <div class="row-inline">
+              <input id="server-url" placeholder="https://your-codespace-8086.app.github.dev">
+              <button type="button" class="small primary" id="server-save">Connect</button>
+            </div>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="preview-pane">
+      <div class="tabs">
+        <button class="tab active" data-tab="display">Preview</button>
+        <button class="tab" data-tab="code">Code</button>
+        <button class="tab" data-tab="apps">Apps <span class="tab-count" id="apps-count"></span></button>
+        <button class="tab" data-tab="serial">Console</button>
+        <div class="spacer"></div>
+        <div class="toolbar">
+          <button id="lock-mouse" class="icon" title="Capture the mouse for the OS (Esc releases it)">🖱</button>
+          <button id="cad" class="icon" title="Send Ctrl+Alt+Del">⌨</button>
+          <button id="restart" class="icon" title="Restart the OS">⟲</button>
+          <button id="shot" class="icon" title="Save a screenshot">📷</button>
+          <button id="fullscreen" class="icon" title="Fullscreen">⛶</button>
+          <div class="menu-wrap">
+            <button id="export" class="small" disabled>Download ▾</button>
+            <div class="menu" id="export-menu" hidden></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-body" id="tab-display">
+        <div class="screen-frame" id="screen-frame">
+          <div id="screen_container"><div class="text-layer"></div><canvas></canvas></div>
+          <img id="preview" alt="Screenshot from the test machine" hidden>
+          <div class="overlay" id="overlay">
+            <div class="empty-screen">
+              <div class="empty-icon">▣</div>
+              <h3>Your OS will appear here</h3>
+              <p class="muted">Tell the AI what to build in the chat. It boots here as soon as it's ready.</p>
+            </div>
+          </div>
+        </div>
+        <div class="statusbar">
+          <span><i class="dot" id="m-dot"></i><b id="m-cpu">idle</b></span>
+          <span>MIPS <b id="m-mips">–</b></span>
+          <span>FPS <b id="m-fps">–</b></span>
+          <span>Video <b id="m-video">–</b></span>
+          <span>Memory <b id="m-mem">–</b></span>
+          <span>Image <b id="m-image">–</b></span>
+          <span class="spacer"></span>
+          <label class="link" title="Boot a floppy image from your computer">Open .img<input type="file" id="upload" accept=".img,.bin,.ima" hidden></label>
+          <button class="link" id="demo-link" title="Boot a ready-made demo OS">Try a demo OS</button>
+        </div>
+      </div>
+
+      <div class="tab-body code" id="tab-code" hidden>
+        <div class="file-list">
+          <div class="file-list-head"><span>Files</span><button id="new-file" class="link">＋ file</button></div>
+          <div id="file-list"></div>
+        </div>
+        <div class="editor-wrap">
+          <div class="editor-head">
+            <span id="editor-name">No file</span>
+            <span class="spacer"></span>
+            <button id="revert" class="small">Revert</button>
+            <button id="rebuild" class="primary small">Run my edits</button>
+          </div>
+          <textarea id="editor" spellcheck="false" placeholder="The AI's code shows up here after the first build. Edit it and press Run my edits."></textarea>
+        </div>
+      </div>
+
+      <div class="tab-body apps" id="tab-apps" hidden>
+        <div class="custom-app">
+          <div>
+            <b>Ask the AI for any app</b>
+            <p class="muted">A to-do list, a music player, a calculator, a chat app, a weather widget… it writes the app into your OS.</p>
+          </div>
+          <form class="row-inline" id="custom-app-form">
+            <input id="custom-app" placeholder="A to-do list app with checkboxes and due dates">
+            <button id="custom-app-btn" class="primary small">Ask AI</button>
+          </form>
+        </div>
+        <div class="apps-head"><span class="field-label">Or add a ready-made app instantly</span><span class="muted" id="apps-hint"></span></div>
+        <div class="app-grid" id="app-grid"></div>
+      </div>
+
+      <div class="tab-body" id="tab-serial" hidden>
+        <pre class="serial" id="serial"></pre>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================================================ PROJECTS -->
+  <main class="view page" id="view-projects" hidden>
+    <h2>My operating systems</h2>
+    <div class="project-grid" id="project-grid"></div>
+  </main>
+
+  <!-- ============================================================= PRICING -->
+  <main class="view page" id="view-pricing" hidden>
+    <h2>Plans</h2>
+    <p class="muted">Prices in Indian rupees per month. Payments are handled by Razorpay (UPI, cards, net banking, wallets); KernelCraft never sees your card details.</p>
+    <div class="plans" id="plans"></div>
+    <p class="muted small-print" id="billing-note"></p>
+  </main>
+
+  <!-- ================================================================ DOCS -->
+  <main class="view page docs" id="view-docs" hidden>
+    <h2>Building operating systems with KernelCraft</h2>
+    <div class="doc-grid">
+      <article>
+        <h3>Writing good prompts</h3>
+        <ul>
+          <li>Name your OS and its look: <i>"called Nova, glassy dark theme with cyan accents"</i>.</li>
+          <li>List the apps you want: file explorer, notepad, paint, games, settings, a clock widget.</li>
+          <li>Describe behaviour: <i>"the terminal supports pipes"</i>, <i>"double-click files to open them"</i>.</li>
+          <li>Iterate: keep chatting. Every message changes your current OS, one feature at a time.</li>
+        </ul>
+        <h3>Targets</h3>
+        <ul>
+          <li><b>16-bit</b>: assembly, BIOS services, text or VGA graphics. Runs in the browser.</li>
+          <li><b>32-bit</b>: C on the KernelCraft SDK. Runs in the browser.</li>
+          <li><b>64-bit</b>: the same SDK in long mode. Verified in QEMU; export to run locally (the browser emulator is 32-bit only).</li>
+          <li><b>Linux Forge</b>: a real Linux kernel plus BusyBox; the AI writes init scripts, config and C programs. Export a .tar.gz with a QEMU run script.</li>
+        </ul>
+        <h3>In the builder</h3>
+        <ul>
+          <li><b>Code</b> tab: edit any file and press <b>Run my edits</b> to compile without AI.</li>
+          <li><b>Console</b> tab: everything the OS logs with <code>kc_log()</code> (COM1).</li>
+          <li><b>Apps</b> tab: describe any app for the AI to write, or add a ready-made browser, Paint, games, clock, calendar or piano.</li>
+          <li><b>⚙ Settings</b> (next to the send button): OS type, CPU cores, RAM up to 24 GB, graphics memory up to 6 GB, and screen resolution.</li>
+          <li>🖱 captures the mouse for the guest; Esc releases it.</li>
+          <li>Inside SDK desktops: double-click icons, drag windows by the title bar, F1 opens the start menu, Alt+Tab cycles windows.</li>
+        </ul>
+      </article>
+      <article>
+        <h3>KernelCraft SDK quick reference</h3>
+<pre class="code">#include "kc.h"
+
+/* A new app: icon on the desktop + start menu entry */
+static void paint(kc_window *w, surface *s) {
+    fill_rect(s, 0, 0, s->width, s->height, RGB(20, 24, 36));
+    draw_text(s, 16, 16, "Hello from my app", RGB(255, 255, 255));
+}
+static void on_event(kc_window *w, kc_event *ev) {
+    if (ev->type == EV_MOUSE_DOWN) { wm_notify("Clicked!"); wm_invalidate(w); }
+}
+static void hello_open(void) {
+    kc_window *w = wm_create("Hello", -1, -1, 400, 240);
+    w->on_paint = paint;
+    w->on_event = on_event;
+}
+KC_APP(hello, "Hello", icon_info, hello_open);
+
+/* A terminal command */
+static void cmd_hi(int argc, char **argv, void (*print)(const char *)) {
+    print("hi there\n");
+}
+KC_COMMAND(hi, "say hi", cmd_hi);
+
+/* Startup code: theme, wallpaper, files */
+static void setup(void) {
+    theme.os_name = "Nova";
+    theme.accent = RGB(0, 230, 255);
+    fs_write("/home/user/welcome.txt", "Hi!\n", 4);
+}
+KC_BOOT_HOOK(setup);</pre>
+        <p><a href="#" id="show-kch">View the full kc.h API</a></p>
+        <pre class="code" id="kch" hidden></pre>
+      </article>
+    </div>
+  </main>
+
+  <!-- ============================================================= DIALOGS -->
+  <dialog id="auth-dialog">
+    <form id="auth-form">
+      <button type="button" class="close" data-close>×</button>
+      <h3 id="auth-title">Sign in</h3>
+      <label class="name-field">Name<input name="name" autocomplete="name"></label>
+      <label>Email<input name="email" type="email" required autocomplete="email"></label>
+      <label>Password<input name="password" type="password" required minlength="8" autocomplete="current-password"></label>
+      <p class="error" id="auth-error"></p>
+      <button class="primary block" type="submit" id="auth-submit">Sign in</button>
+      <p class="muted center">
+        <span id="auth-switch-text">New here?</span>
+        <button type="button" class="link" id="auth-switch">Create an account</button>
+      </p>
+    </form>
+  </dialog>
+
   <dialog id="lightbox">
-    <form method="dialog"><button class="close">×</button></form>
+    <button class="close" data-close>×</button>
     <img id="lightbox-img" alt="">
     <div id="lightbox-text"></div>
   </dialog>
 
-  <script src="app.js"></script>
+  <div class="toast" id="toast" hidden></div>
+  <script src="app.js" defer></script>
 </body>
 </html>

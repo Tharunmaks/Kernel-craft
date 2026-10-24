@@ -1,0 +1,6 @@
+#!/bin/sh
+# Startup script: runs once before the main app. Put services and setup here.
+echo "kc: starting $(cat /etc/hostname)" > /dev/ttyS0
+[ -x /usr/bin/kcsplash ] && /usr/bin/kcsplash
+mkdir -p /home/user
+echo "Welcome to your Linux Forge OS." > /home/user/readme.txt

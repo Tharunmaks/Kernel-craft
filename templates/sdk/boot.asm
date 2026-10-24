@@ -1,9 +1,8 @@
-; KernelCraft 64-bit boot sector (template): enters 32-bit protected mode;
-; entry.asm then builds page tables and switches to 64-bit long mode.
-; 1. switches to VGA mode 13h (320x200, 256 colours, framebuffer at 0xA0000)
-; 2. copies the BIOS 8x8 font to phys 0x6000 (chars 0-255, 8 bytes each)
-; 3. loads KERNEL_SECTORS sectors from LBA 1 to phys 0x10000
-; 4. enables A20, loads a flat GDT, enters protected mode, jumps to 0x10000
+; KernelCraft SDK boot sector (32-bit and 64-bit tiers)
+; 1. loads KERNEL_SECTORS sectors from LBA 1 to phys 0x10000
+; 2. copies the BIOS 8x16 font to phys 0x6000 (256 glyphs x 16 bytes)
+; 3. enables A20, loads a flat GDT, enters protected mode, jumps to 0x10000
+; The kernel switches to a high-resolution BGA framebuffer itself.
 [bits 16]
 [org 0x7C00]
 
@@ -42,16 +41,9 @@ start:
     inc word [lba]
     loop .next
 
-    ; ---- graphics mode 13h
-    mov ax, 0x0013
-    int 0x10
-
-    ; ---- copy 8x8 font: BH=3 gives chars 0-127, BH=4 gives 128-255
-    mov bh, 3
+    ; ---- copy the 8x16 font (BH=6), all 256 glyphs
+    mov bh, 6
     mov di, FONT_ADDR
-    call copy_font
-    mov bh, 4
-    mov di, FONT_ADDR + 1024
     call copy_font
 
     ; ---- A20 (fast gate) + protected mode
@@ -77,7 +69,7 @@ copy_font:
     mov si, bp
     xor ax, ax
     mov es, ax
-    mov cx, 1024
+    mov cx, 4096
     rep movsb
     pop ds
     ret
