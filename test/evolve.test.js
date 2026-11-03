@@ -124,3 +124,11 @@ test("OpenRouter: a bad key is not retried on other models", async () => {
   await assert.rejects(provider.complete({ system: "s", content: "c" }), /User not found/);
   assert.strictEqual(calls, 1);
 });
+
+test("OpenRouter: the daily free-model limit stops at once with a clear message", async () => {
+  let calls = 0;
+  const fetchImpl = async () => { calls++; return { ok: false, status: 429, headers: { get: () => null }, json: async () => ({ error: { code: 429, message: "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day" } }) }; };
+  const provider = createOpenRouterProvider({ apiKey: "k", models: ["a", "b"], fetchImpl, sleep: async () => {} });
+  await assert.rejects(provider.complete({ system: "s", content: "c" }), (err) => err.fatal && /daily free-model limit/.test(err.message));
+  assert.strictEqual(calls, 1);
+});
