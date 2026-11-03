@@ -23,6 +23,7 @@ try {
 const { TARGETS, getTier } = require("./lib/tiers");
 const { createProvider } = require("./lib/providers");
 const { buildOS } = require("./lib/pipeline");
+const { evolveOS } = require("./lib/evolve");
 const { readTemplate } = require("./lib/toolchain");
 const { planFor, planForTarget, publicPlans } = require("./lib/plans");
 const store = require("./lib/store");
@@ -134,7 +135,7 @@ function account(user) {
   const usage = store.usageToday(user.id);
   return {
     user: auth.publicUser(user),
-    plan: { id: plan.id, name: plan.name, targets: plan.targets, maxPasses: plan.maxPasses, bigFiles: plan.bigFiles },
+    plan: { id: plan.id, name: plan.name, targets: plan.targets, maxPasses: plan.maxPasses, bigFiles: plan.bigFiles, accuracyRounds: plan.accuracyRounds || 0 },
     usage: { aiToday: usage.ai || 0, aiLimit: plan.aiBuildsPerDay, manualToday: usage.manual || 0, manualLimit: plan.manualBuildsPerDay },
   };
 }
@@ -191,6 +192,7 @@ async function runBuildJob(req, res, user, { tier, job, saveAs }) {
     const payload = {
       type: "result",
       verified: result.verified,
+      accuracy: result.accuracy ? { percent: result.accuracy.percent, targetPercent: result.accuracy.targetPercent, reached: result.accuracy.reached, rounds: result.accuracy.rounds, items: result.accuracy.items, spec: { name: result.accuracy.spec.name, summary: result.accuracy.spec.summary } } : null,
       target: tier.id,
       browserBootable: tier.browserBootable,
       projectId: project?.id ?? null,
@@ -244,7 +246,15 @@ async function buildOSRoute(req, res) {
   return runBuildJob(req, res, user, {
     tier,
     saveAs,
-    job: (emit) => buildOS({ prompt, tier, provider, maxPasses: plan.maxPasses, bigFiles: plan.bigFiles, baseFiles, changeRequest, extraFiles, hardware: hw, emit }),
+    job: (emit) => {
+      const options = { prompt, tier, provider, maxPasses: plan.maxPasses, bigFiles: plan.bigFiles, baseFiles, changeRequest, extraFiles, hardware: hw, emit };
+      // Accuracy mode (default for new OSes): research a spec, then build,
+      // score and improve until the score reaches the target or rounds run out.
+      const accuracy = body.accuracy ?? !body.projectId;
+      if (!accuracy || !plan.accuracyRounds || typeof provider.complete !== "function") return buildOS(options);
+      const targetPercent = Math.max(50, Math.min(99, Number(body.targetPercent) || 95));
+      return evolveOS({ ...options, targetPercent, maxRounds: plan.accuracyRounds });
+    },
   });
 }
 

@@ -491,15 +491,17 @@
   const STATUS = {
     architect: "Planning the design…", writer: "Writing code…", generator: "Writing code…", fixer: "Fixing a problem…",
     builder: "Compiling…", runner: "Booting your OS in a test machine…", critic: "Looking at the screen…",
+    research: "Researching what this OS needs…", judge: "Scoring it against the spec…",
   };
 
   function progressBubble(intro) {
     const items = STEPS.map((s) => h("li", {}, h("span", { className: "st", textContent: "○" }), s.label));
     const status = h("div", { className: "status-line" }, h("span", { className: "typing" }, h("i"), h("i"), h("i")), h("span", { textContent: "Getting ready…" }));
     const shots = h("div", { className: "shots" });
+    const scores = h("div", { className: "scores" });
     const log = h("div", { className: "log" });
     const details = h("details", { className: "log-details" }, h("summary", { textContent: "Show what the AI is doing" }), log);
-    const bubble = aiMsg(p(intro), h("ul", { className: "steps-list" }, items), status, shots, details);
+    const bubble = aiMsg(p(intro), h("ul", { className: "steps-list" }, items), status, shots, scores, details);
     let current = -1;
     let attempt = 1;
     const setStep = (i) => {
@@ -521,6 +523,7 @@
           setStep(i);
           setStatus(attempt > 1 && i === 0 ? `Fixing what went wrong (attempt ${attempt})…` : STATUS[agent]);
         } else if (agent === "error") setStatus(message);
+        else if (STATUS[agent]) setStatus(STATUS[agent]);
         scrollChat();
       },
       pass(ev, url) {
@@ -531,6 +534,17 @@
         shots.append(el);
         if (!ok && current >= 0) items[current].className = "failed";
         setStatus(ok ? "Looks good!" : `Found a problem: ${ev.verdict?.summary || "fixing it"}`);
+        scrollChat();
+      },
+      // Accuracy mode: one bar per improvement round.
+      score(ev) {
+        const done = ev.items.filter((r) => r.score === 1).length;
+        const bar = h("div", { className: `score-row ${ev.percent >= ev.targetPercent ? "pass" : ""}`, title: ev.items.map((r) => `${r.score === 1 ? "✓" : r.score ? "½" : "✗"} ${r.text}`).join("\n") },
+          h("span", { className: "score-label", textContent: `Round ${ev.round}` }),
+          h("span", { className: "score-track" }, h("i", { style: `width:${Math.min(100, ev.percent)}%` }), h("b", { style: `left:${ev.targetPercent}%` })),
+          h("span", { className: "score-value", textContent: `${ev.percent}% · ${done}/${ev.items.length}` }));
+        scores.append(bar);
+        setStatus(ev.percent >= ev.targetPercent ? `Scored ${ev.percent}%, target reached!` : `Scored ${ev.percent}% (target ${ev.targetPercent}%), improving…`);
         scrollChat();
       },
       finish(ok, text, extra = []) {
@@ -966,6 +980,7 @@
       for await (const ev of ndjson(res)) {
         if (ev.type === "log") progress.log(ev.agent, ev.message);
         else if (ev.type === "pass") { screenshots[ev.pass] = ev.screenshot; progress.pass(ev, ev.screenshot); }
+        else if (ev.type === "score") progress.score(ev);
         else if (ev.type === "error") { progress.log("error", ev.message); progress.fail(`Something went wrong: ${ev.message}`); finished = true; }
         else if (ev.type === "result") { await handleResult(ev, screenshots, progress); finished = true; }
       }
@@ -1000,11 +1015,13 @@
     if (first) history.replaceState(null, "", `#/studio/${project.id}`);
     if (result.serialLog) serialWrite(`\n--- test machine console ---\n${result.serialLog}\n`);
     const runsHere = result.browserBootable;
+    const acc = result.accuracy;
+    const accText = acc ? ` Spec score: ${acc.percent}% (target ${acc.targetPercent}%, ${acc.rounds.length} round${acc.rounds.length === 1 ? "" : "s"})${acc.reached ? "." : ". Ask me to keep improving it."}` : "";
     progress.finish(
       result.verified,
-      result.verified
+      (result.verified
         ? `✓ Done! ${project.name} is ${runsHere ? "running on the right. Click into it to use it." : "built and tested. Use Download to run it with QEMU."}`
-        : `⚠ ${project.name} built, but my screen check still sees problems${runsHere ? ". It's running on the right" : ""}. Tell me what looks wrong and I'll fix it.`,
+        : `⚠ ${project.name} built, but my screen check still sees problems${runsHere ? ". It's running on the right" : ""}. Tell me what looks wrong and I'll fix it.`) + accText,
       [p("What next? Ask for any change:"), nextIdeas()],
     );
     await bootProjectArtifact(screenshots[result.finalPass]);
