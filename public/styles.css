@@ -158,6 +158,13 @@ label input { margin-top: 4px; }
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.scores { display: grid; gap: 4px; margin-top: 8px; }
+.scores:empty { display: none; }
+.score-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 8px; align-items: center; font: 12px var(--mono); cursor: help; }
+.score-track { position: relative; height: 8px; border-radius: 4px; background: var(--border); overflow: visible; }
+.score-track i { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: #f59e0b; }
+.score-row.pass .score-track i { background: #22c55e; }
+.score-track b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: currentColor; opacity: .6; }
 .shots { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .shot { width: 92px; height: 62px; border-radius: 6px; background: #000 center / cover no-repeat; border: 2px solid var(--border); cursor: zoom-in; position: relative; }
 .shot.pass { border-color: var(--pass); }

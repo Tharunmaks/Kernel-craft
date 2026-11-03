@@ -123,11 +123,24 @@ Put API keys in a `.env` file next to `server.js` (copy `.env.example`). It is g
 
 ## AI providers
 
-`lib/providers/` holds pluggable providers (`KC_PROVIDER=anthropic|groq|offline`). With no `KC_PROVIDER`, the server uses Claude when `ANTHROPIC_API_KEY` is set, otherwise Groq when `GROQ_API_KEY` is set, otherwise offline mode.
+`lib/providers/` holds pluggable providers (`KC_PROVIDER=anthropic|openrouter|groq|offline`). With no `KC_PROVIDER`, the server uses Claude when `ANTHROPIC_API_KEY` is set, otherwise OpenRouter when `OPENROUTER_API_KEY` is set, otherwise Groq when `GROQ_API_KEY` is set, otherwise offline mode.
+
+**OpenRouter** (`OPENROUTER_API_KEY`): uses free models by default. Code is written by `nvidia/nemotron-3-ultra-550b-a55b:free` (then `cohere/north-mini-code:free`, `google/gemma-4-31b-it:free`) and screenshots are judged by `google/gemma-4-31b-it:free` (then `nvidia/nemotron-3.5-super-vl:free`). Free models come and go and are rate limited, so each role has a fallback list: when a model is gone or busy, the next one is tried and the one that works is remembered. Override with comma-separated lists in `OPENROUTER_MODEL` and `OPENROUTER_CRITIC_MODEL`. A free OpenRouter account allows only 50 free-model requests a day (1000 after buying $10 of credits). One multi-file build round uses roughly 20 to 30 requests, so accuracy mode on free models needs credits to run more than a round or two a day; the engine stops with a clear message when the daily limit is hit.
 
 **Groq** (`GROQ_API_KEY`): code is written by `openai/gpt-oss-120b` and screenshots are checked by `meta-llama/llama-4-scout-17b-16e-instruct` (override with `GROQ_MODEL`, `GROQ_CRITIC_MODEL`). Free-tier rate limits are tight, so the provider waits and retries on HTTP 429. Big-OS builds make many calls and may need a paid tier.
 
 **Claude:** The Claude provider uses `claude-opus-5-5` by default (`KC_MODEL`, `KC_CRITIC_MODEL` override), streaming with adaptive thinking and server-side model fallbacks. To add another vendor, implement `complete()`, `generate()` and `critique()` with `lib/prompts.js` and register it in `lib/providers/index.js`.
+
+## Accuracy mode
+
+New OSes on paid plans are built in accuracy mode (`lib/evolve.js`), for any request, from "Windows 11 style" to "an OS for our company with our logo and strong security":
+
+1. **Research.** The model turns the request into a spec of 12 to 20 weighted requirements. Visual ones must show on the first screenshot; code ones (apps, login and password hashing, double buffering, bounds checks) are checked in the source.
+2. **Generate and test.** The normal pipeline writes, compiles, boots and repairs the OS.
+3. **Compare.** A vision judge scores the visual requirements against the screenshot and a code judge scores the rest against the source: 1, 0.5 or 0 each, weighted into a percentage. A build that crashes, panics or shows a blank screen is capped at 60%.
+4. **Improve.** Unmet requirements, most important first, become a change request on the best build so far. This repeats until the score reaches the target (95% by default, `targetPercent` in the build request) or the plan's round cap (Plus 3, Pro 5, Max 8).
+
+The score says how well the build matches its own spec in a model's judgment. It is not a measurement against the real product it imitates, and judges (especially free models) can be generous or inconsistent. Send `"accuracy": false` to build once without scoring.
 
 ## Security
 
